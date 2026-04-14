@@ -1,0 +1,338 @@
+# =========================================
+# Raspberry Pi용 EAR 기반 졸음 감지 시스템
+# - Picamera2 사용
+# - MediaPipe Tasks Face Landmarker 사용
+# - gpiozero Buzzer 사용
+# =========================================
+
+import time
+from pathlib import Path
+
+import cv2
+import mediapipe as mp
+import numpy as np
+from gpiozero import Buzzer
+from picamera2 import Picamera2
+
+
+# =========================================
+# 사용자 설정값
+# =========================================
+
+# Face Landmarker 모델 파일 경로
+MODEL_PATH = Path(__file__).with_name("face_landmarker.task")
+
+# EAR 임계값
+# 값이 낮을수록 "눈 감김" 판정을 더 엄격하게 함
+EAR_THRESHOLD = 0.23
+
+# 연속으로 몇 프레임 동안 눈이 감겨야 졸음으로 볼지
+CLOSED_FRAMES_THRESHOLD = 20
+
+# 부저가 연결된 GPIO 핀 번호 (BCM 기준)
+BUZZER_PIN = 18
+
+# 화면 크기
+FRAME_WIDTH = 640
+FRAME_HEIGHT = 480
+
+
+# =========================================
+# MediaPipe 눈 랜드마크 인덱스
+# =========================================
+# Face Landmarker가 반환하는 468개+ 랜드마크 중
+# EAR 계산에 사용할 양쪽 눈 6개 점
+LEFT_EYE = [33, 160, 158, 133, 153, 144]
+RIGHT_EYE = [362, 385, 387, 263, 373, 380]
+
+
+# =========================================
+# 전역 상태 변수
+# =========================================
+closed_frames = 0
+alarm_on = False
+
+
+# =========================================
+# 거리 계산 함수
+# =========================================
+def euclidean_distance(p1, p2):
+    """두 점 사이의 유클리드 거리 계산"""
+    return np.linalg.norm(np.array(p1) - np.array(p2))
+
+
+# =========================================
+# EAR 계산 함수
+# =========================================
+def calculate_ear(eye_points):
+    """
+    EAR(Eye Aspect Ratio) 계산
+
+    공식:
+    EAR = (||p2-p6|| + ||p3-p5||) / (2 * ||p1-p4||)
+
+    eye_points는 6개 점:
+    [p1, p2, p3, p4, p5, p6]
+    """
+    p1, p2, p3, p4, p5, p6 = eye_points
+
+    vertical_1 = euclidean_distance(p2, p6)
+    vertical_2 = euclidean_distance(p3, p5)
+    horizontal = euclidean_distance(p1, p4)
+
+    # 0으로 나누는 상황 방지
+    if horizontal == 0:
+        return 0.0
+
+    return (vertical_1 + vertical_2) / (2.0 * horizontal)
+
+
+# =========================================
+# 랜드마크 좌표를 픽셀 좌표로 변환
+# =========================================
+def get_eye_points(face_landmarks, eye_indices, width, height):
+    """
+    MediaPipe 랜드마크는 정규화 좌표(0~1)로 들어오므로
+    실제 화면 픽셀 좌표로 변환한다.
+    """
+    points = []
+
+    for idx in eye_indices:
+        lm = face_landmarks[idx]
+        x = int(lm.x * width)
+        y = int(lm.y * height)
+        points.append((x, y))
+
+    return points
+
+
+# =========================================
+# 눈 점을 화면에 그리기
+# =========================================
+def draw_eye_points(frame, eye_points):
+    """눈 랜드마크를 초록 점으로 표시"""
+    for pt in eye_points:
+        cv2.circle(frame, pt, 2, (0, 255, 0), -1)
+
+
+# =========================================
+# 부저 제어 함수
+# =========================================
+def turn_alarm_on(buzzer):
+    """부저 켜기"""
+    buzzer.on()
+
+
+def turn_alarm_off(buzzer):
+    """부저 끄기"""
+    buzzer.off()
+
+
+# =========================================
+# MediaPipe Face Landmarker 초기화
+# =========================================
+def create_landmarker(model_path: Path):
+    """
+    MediaPipe Tasks Face Landmarker 생성
+    VIDEO 모드이므로 detect_for_video()를 사용한다.
+    """
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"모델 파일을 찾을 수 없습니다: {model_path}"
+        )
+
+    BaseOptions = mp.tasks.BaseOptions
+    FaceLandmarker = mp.tasks.vision.FaceLandmarker
+    FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
+    VisionRunningMode = mp.tasks.vision.RunningMode
+
+    options = FaceLandmarkerOptions(
+        base_options=BaseOptions(model_asset_path=str(model_path)),
+        running_mode=VisionRunningMode.VIDEO,
+        num_faces=1,
+    )
+
+    return FaceLandmarker.create_from_options(options)
+
+
+# =========================================
+# Picamera2 초기화
+# =========================================
+def create_camera():
+    """
+    Picamera2를 사용해 카메라 스트림 설정
+    출력 포맷은 RGB888로 설정한다.
+    """
+    picam2 = Picamera2()
+
+    config = picam2.create_preview_configuration(
+        main={"size": (FRAME_WIDTH, FRAME_HEIGHT), "format": "RGB888"}
+    )
+    picam2.configure(config)
+    picam2.start()
+
+    # 카메라가 안정화될 시간을 조금 준다.
+    time.sleep(1.0)
+    return picam2
+
+
+# =========================================
+# 메인 실행 함수
+# =========================================
+def main():
+    global closed_frames, alarm_on
+
+    # 부저 초기화
+    buzzer = Buzzer(BUZZER_PIN)
+    turn_alarm_off(buzzer)
+
+    # 카메라 및 랜드마커 초기화
+    picam2 = create_camera()
+    landmarker = create_landmarker(MODEL_PATH)
+
+    print("라즈베리파이 졸음 감지 시스템 시작")
+    print("종료하려면 화면 창에서 ESC 키를 누르세요.")
+
+    try:
+        while True:
+            # Picamera2에서 RGB 프레임을 NumPy 배열로 가져온다.
+            frame = picam2.capture_array()
+
+            # Picamera2를 RGB888로 받았으므로
+            # OpenCV 화면 표시용으로는 BGR로 바꿔주는 편이 안전하다.
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+            # 거울처럼 보이도록 좌우 반전
+            frame = cv2.flip(frame, 1)
+
+            height, width = frame.shape[:2]
+
+            # MediaPipe 입력은 SRGB 기준 이미지 객체 사용
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            mp_image = mp.Image(
+                image_format=mp.ImageFormat.SRGB,
+                data=rgb_frame
+            )
+
+            # VIDEO 모드에서는 증가하는 timestamp(ms)가 필요
+            timestamp_ms = int(time.time() * 1000)
+
+            # 얼굴 랜드마크 검출
+            result = landmarker.detect_for_video(mp_image, timestamp_ms)
+
+            # 기본 상태
+            status_text = "AWAKE"
+
+            # 얼굴이 검출된 경우
+            if result.face_landmarks:
+                face_landmarks = result.face_landmarks[0]
+
+                # 양쪽 눈 6개 점 추출
+                left_eye_points = get_eye_points(
+                    face_landmarks, LEFT_EYE, width, height
+                )
+                right_eye_points = get_eye_points(
+                    face_landmarks, RIGHT_EYE, width, height
+                )
+
+                # 화면에 눈 랜드마크 표시
+                draw_eye_points(frame, left_eye_points)
+                draw_eye_points(frame, right_eye_points)
+
+                # EAR 계산
+                left_ear = calculate_ear(left_eye_points)
+                right_ear = calculate_ear(right_eye_points)
+                ear = (left_ear + right_ear) / 2.0
+
+                # 화면에 EAR 값 표시
+                cv2.putText(
+                    frame,
+                    f"EAR: {ear:.3f}",
+                    (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.9,
+                    (0, 255, 255),
+                    2
+                )
+
+                # EAR이 임계값보다 작으면 "눈 감김"으로 본다.
+                if ear < EAR_THRESHOLD:
+                    closed_frames += 1
+                else:
+                    closed_frames = 0
+                    alarm_on = False
+                    turn_alarm_off(buzzer)
+
+                # 일정 프레임 이상 연속으로 눈이 감기면 졸음으로 판정
+                if closed_frames >= CLOSED_FRAMES_THRESHOLD:
+                    status_text = "DROWSINESS ALERT"
+
+                    cv2.putText(
+                        frame,
+                        status_text,
+                        (20, 90),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.9,
+                        (0, 0, 255),
+                        2
+                    )
+
+                    if not alarm_on:
+                        turn_alarm_on(buzzer)
+                        alarm_on = True
+                else:
+                    status_text = "AWAKE"
+
+            else:
+                # 얼굴이 안 보이면 상태 초기화
+                closed_frames = 0
+                alarm_on = False
+                turn_alarm_off(buzzer)
+                status_text = "NO FACE"
+
+            # 상태 텍스트 표시
+            cv2.putText(
+                frame,
+                f"STATUS: {status_text}",
+                (20, 140),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (255, 255, 255),
+                2
+            )
+
+            # 닫힌 프레임 수 표시
+            cv2.putText(
+                frame,
+                f"CLOSED FRAMES: {closed_frames}",
+                (20, 180),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (255, 255, 255),
+                2
+            )
+
+            # 결과 화면 출력
+            cv2.imshow("Raspberry Pi Drowsiness Detection", frame)
+
+            # ESC 키로 종료
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27:
+                break
+
+    except KeyboardInterrupt:
+        print("\n사용자가 프로그램을 중단했습니다.")
+
+    finally:
+        # 종료 시 자원 정리
+        turn_alarm_off(buzzer)
+        buzzer.close()
+        picam2.stop()
+        cv2.destroyAllWindows()
+
+
+# =========================================
+# 프로그램 시작점
+# =========================================
+if __name__ == "__main__":
+    main()
