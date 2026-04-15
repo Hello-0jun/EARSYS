@@ -12,7 +12,7 @@ try:
 except ImportError:
     winsound = None
 
-MODEL_PATH = "face_landmarker.task"
+MODEL_PATH = "../face_landmarker.task"
 LEFT_EYE = [33, 160, 158, 133, 153, 144]
 RIGHT_EYE = [362, 385, 387, 263, 373, 380]
 
