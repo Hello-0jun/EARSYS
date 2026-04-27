@@ -1,0 +1,16 @@
+[project]
+name = "earsys"
+version = "0.2.0"
+description = "EAR-based drowsiness detection system"
+requires-python = "==3.12.*"
+dependencies = [
+    "mediapipe==0.10.18",
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+]
+
+[project.scripts]
+earsys = "main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

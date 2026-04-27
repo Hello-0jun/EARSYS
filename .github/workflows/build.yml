@@ -1,0 +1,100 @@
+name: Build EARSYS
+
+on:
+  push:
+    tags:
+      - "v*"           # v0.2.0, v1.0.0 등 태그 푸시 시 자동 빌드
+  workflow_dispatch:   # Actions 탭에서 수동 실행 가능
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04       # GitHub 호스티드 amd64 런너
+            arch: amd64
+          - os: ubuntu-24.04-arm   # GitHub 네이티브 arm64 런너 (QEMU 없음)
+            arch: arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 소스 체크아웃
+      # -----------------------------------------------------------------------
+      - name: 소스 체크아웃
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Python 3.12 설정
+      # -----------------------------------------------------------------------
+      - name: Python 3.12 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      # -----------------------------------------------------------------------
+      # 의존성 설치
+      # mediapipe==0.10.18 은 amd64/arm64(manylinux aarch64) 모두 공식 휠 제공
+      # -----------------------------------------------------------------------
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      # -----------------------------------------------------------------------
+      # Nuitka-Action 빌드
+      # face_landmarker.task 를 onefile 에 포함시킨다.
+      # 런타임 경로 해석: earsys/config.py _resolve_model_path() 참조.
+      # -----------------------------------------------------------------------
+      - name: Nuitka 빌드 (${{ matrix.arch }})
+        uses: Nuitka/Nuitka-Action@v1.3
+        with:
+          nuitka-version: "2.7"
+          script-name: main.py
+          mode: onefile
+          include-data-files: |
+            face_landmarker.task=face_landmarker.task
+          output-file: earsys-linux-${{ matrix.arch }}
+          assume-yes-for-downloads: true
+          # MediaPipe 가 내부적으로 사용하는 모듈/공유 라이브러리 추적
+          follow-imports: true
+
+      # -----------------------------------------------------------------------
+      # 빌드 결과물 업로드
+      # -----------------------------------------------------------------------
+      - name: 빌드 결과물 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: earsys-linux-${{ matrix.arch }}
+          path: build/earsys-linux-${{ matrix.arch }}.bin
+          if-no-files-found: error
+          include-hidden-files: true
+
+  # ---------------------------------------------------------------------------
+  # 태그 빌드 시 GitHub Release 에 자동 첨부
+  # ---------------------------------------------------------------------------
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: amd64 아티팩트 다운로드
+        uses: actions/download-artifact@v4
+        with:
+          name: earsys-linux-amd64
+          path: dist/
+
+      - name: arm64 아티팩트 다운로드
+        uses: actions/download-artifact@v4
+        with:
+          name: earsys-linux-arm64
+          path: dist/
+
+      - name: GitHub Release 생성 및 파일 첨부
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

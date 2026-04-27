@@ -1,0 +1,24 @@
+[Unit]
+Description=EARSYS — EAR-based Drowsiness Detection
+Documentation=https://github.com/yourname/EARSYS
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/EARSYS
+Environment="EARSYS_LOG_LEVEL=INFO"
+ExecStart=/home/pi/EARSYS/.venv/bin/python main.py
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=earsys
+
+# 비정상 종료 시 최대 5회 재시작 (10분 이내)
+StartLimitInterval=600
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

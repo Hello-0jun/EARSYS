@@ -1,244 +1,138 @@
-# ==============================
-# 필요한 라이브러리 불러오기
-# ==============================
-import cv2                      # OpenCV: 영상 처리 및 웹캠 제어
-import mediapipe as mp          # MediaPipe: 얼굴 랜드마크 검출
-import numpy as np              # NumPy: 수학 계산
-import os                       # 상태 파일 경로
-import struct                   # 공유 메모리 바이너리 포맷
-import time                     # 타임스탬프 생성
-from multiprocessing import shared_memory
+"""
+EARSYS — EAR 기반 졸음 감지 시스템 진입점.
 
-# ==============================
-# Face Landmarker 모델 경로
-# ==============================
-# main.py와 같은 폴더에 모델을 둘 경우 파일명만 입력
-MODEL_PATH = "face_landmarker.task"
-SHM_NAME = os.getenv("EARSYS_SHM_NAME", "/earsys_drowsy_shm")
+이 파일은 최소한의 진입점 역할만 합니다.
+비즈니스 로직은 earsys/ 패키지의 각 모듈에 위치합니다.
 
-# RPI-CAM-V2(imx219) + GStreamer 기본 파이프라인
-GST_PIPELINE = os.getenv(
-    "EARSYS_GST_PIPELINE",
-    "libcamerasrc ! "
-    "video/x-raw, width=1920, height=1080, framerate=47/1 ! "
-    "videoconvert ! "
-    "video/x-raw, format=BGR ! "
-    "appsink drop=true max-buffers=1 sync=false",
+실행:
+    python main.py
+
+환경변수:
+    EARSYS_MODEL_PATH       face_landmarker.task 경로 (기본: 프로젝트 루트)
+    EARSYS_SHM_NAME         POSIX SHM 이름 (기본: /earsys_drowsy_shm)
+    EARSYS_GST_PIPELINE     GStreamer 파이프라인 문자열
+    EARSYS_EAR_THRESHOLD    눈 감김 EAR 임계값 (기본: 0.23)
+    EARSYS_CLOSED_FRAMES    졸음 판정 연속 프레임 수 (기본: 20)
+    EARSYS_LOG_LEVEL        로그 레벨 (기본: INFO)
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import sys
+
+import cv2
+
+from earsys.alarm import play_alarm
+from earsys.camera import GstreamerCamera
+from earsys.config import (
+    CLOSED_FRAMES_THRESHOLD,
+    EAR_THRESHOLD,
+    LEFT_EYE_INDICES,
+    RIGHT_EYE_INDICES,
+    STATUS_AWAKE,
+    STATUS_DROWSY,
+    STATUS_NO_FACE,
 )
+from earsys.detector import FaceDetector
+from earsys.ear import average_ear, calculate_ear, get_eye_points
+from earsys.shm_bridge import ShmBridge
 
-SHM_SIZE = 32
-OFF_MAGIC = 0
-OFF_VERSION = 4
-OFF_SEQ = 8
-OFF_STATUS = 12
-
-STATUS_AWAKE = 0
-STATUS_DROWSY = 1
-STATUS_NO_FACE = 2
-
-shm_obj = None
-seq_counter = 0
-
-# ==============================
-# MediaPipe Face Landmarker 설정
-# ==============================
-BaseOptions = mp.tasks.BaseOptions
-FaceLandmarker = mp.tasks.vision.FaceLandmarker
-FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
-VisionRunningMode = mp.tasks.vision.RunningMode
-
-# Face Landmarker 옵션 설정
-options = FaceLandmarkerOptions(
-    base_options=BaseOptions(model_asset_path=MODEL_PATH),
-    running_mode=VisionRunningMode.VIDEO,  # 비디오 스트림 모드
-    num_faces=1                            # 한 명만 인식
+# ---------------------------------------------------------------------------
+# 로깅 설정
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=os.getenv("EARSYS_LOG_LEVEL", "INFO"),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
 )
-
-# Face Landmarker 객체 생성
-landmarker = FaceLandmarker.create_from_options(options)
-
-# ==============================
-# 눈 랜드마크 인덱스 정의
-# ==============================
-LEFT_EYE = [33, 160, 158, 133, 153, 144]
-RIGHT_EYE = [362, 385, 387, 263, 373, 380]
-
-# ==============================
-# 졸음 감지 기준 설정
-# ==============================
-EAR_THRESHOLD = 0.23            # 눈 감김 판정 기준
-CLOSED_FRAMES_THRESHOLD = 20    # 연속 프레임 기준
-
-closed_frames = 0               # 눈 감김 프레임 카운트
-alarm_on = False                # 알람 중복 방지
-
-# ==============================
-# 두 점 사이 거리 계산 함수
-# ==============================
-def euclidean_distance(p1, p2):
-    """두 점 사이의 유클리드 거리 계산"""
-    return np.linalg.norm(np.array(p1) - np.array(p2))
-
-# ==============================
-# EAR 계산 함수
-# ==============================
-def calculate_ear(eye_points):
-    """
-    EAR(Eye Aspect Ratio) 계산 공식
-    EAR = (||p2-p6|| + ||p3-p5||) / (2 * ||p1-p4||)
-    """
-    p1, p2, p3, p4, p5, p6 = eye_points
-
-    vertical1 = euclidean_distance(p2, p6)
-    vertical2 = euclidean_distance(p3, p5)
-    horizontal = euclidean_distance(p1, p4)
-
-    if horizontal == 0:
-        return 0.0
-
-    return (vertical1 + vertical2) / (2.0 * horizontal)
-
-# ==============================
-# 눈 좌표 추출 함수
-# ==============================
-def get_eye_points(landmarks, indices, width, height):
-    """정규화된 좌표를 픽셀 좌표로 변환"""
-    points = []
-    for idx in indices:
-        lm = landmarks[idx]
-        x = int(lm.x * width)
-        y = int(lm.y * height)
-        points.append((x, y))
-    return points
-
-# ==============================
-# 경고음 함수
-# ==============================
-def play_alarm():
-    """Linux 터미널 벨 출력"""
-    print("\a", end="", flush=True)
+logger = logging.getLogger("earsys.main")
 
 
-def init_shared_memory():
-    """POSIX 공유 메모리 생성/연결 및 헤더 초기화"""
-    global shm_obj
+# ---------------------------------------------------------------------------
+# 감지 루프
+# ---------------------------------------------------------------------------
 
-    name = SHM_NAME[1:] if SHM_NAME.startswith("/") else SHM_NAME
+def run_detection(camera: GstreamerCamera, detector: FaceDetector, shm: ShmBridge) -> None:
+    """메인 감지 루프. KeyboardInterrupt 시 정상 종료합니다."""
+    closed_frames: int = 0
+    alarm_triggered: bool = False
+
+    logger.info(
+        "감지 루프 시작 — EAR 임계값=%.2f, 연속 프레임=%d",
+        EAR_THRESHOLD,
+        CLOSED_FRAMES_THRESHOLD,
+    )
+
     try:
-        shm_obj = shared_memory.SharedMemory(name=name, create=True, size=SHM_SIZE)
-    except FileExistsError:
-        shm_obj = shared_memory.SharedMemory(name=name, create=False, size=SHM_SIZE)
+        for bgr_frame in camera.frames(flip=True):
+            height, width = bgr_frame.shape[:2]
+            rgb_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
 
-    buf = shm_obj.buf
-    buf[OFF_MAGIC:OFF_MAGIC + 4] = b"EARS"
-    struct.pack_into("<I", buf, OFF_VERSION, 1)
-    struct.pack_into("<I", buf, OFF_SEQ, 0)
-    struct.pack_into("<I", buf, OFF_STATUS, STATUS_AWAKE)
+            face_landmarks_list = detector.detect(rgb_frame)
 
+            if face_landmarks_list:
+                landmarks = face_landmarks_list[0]
 
-def write_status_shm(status_code):
-    """시퀀스 기반으로 공유 메모리에 상태 갱신"""
-    global seq_counter
+                left_eye = get_eye_points(landmarks, LEFT_EYE_INDICES, width, height)
+                right_eye = get_eye_points(landmarks, RIGHT_EYE_INDICES, width, height)
 
-    if shm_obj is None:
-        return
+                ear = average_ear(calculate_ear(left_eye), calculate_ear(right_eye))
 
-    buf = shm_obj.buf
-    seq_counter += 1
-    seq_start = (seq_counter << 1) | 1
-    seq_end = seq_start + 1
+                if ear < EAR_THRESHOLD:
+                    closed_frames += 1
+                else:
+                    closed_frames = 0
+                    alarm_triggered = False
 
-    struct.pack_into("<I", buf, OFF_SEQ, seq_start)
-    struct.pack_into("<I", buf, OFF_STATUS, status_code)
-    struct.pack_into("<I", buf, OFF_SEQ, seq_end)
+                if closed_frames >= CLOSED_FRAMES_THRESHOLD:
+                    status = STATUS_DROWSY
+                    if not alarm_triggered:
+                        play_alarm()
+                        alarm_triggered = True
+                        logger.warning("졸음 감지! EAR=%.3f, 연속 프레임=%d", ear, closed_frames)
+                else:
+                    status = STATUS_AWAKE
 
-# ==============================
-# 웹캠 실행
-# ==============================
-cap = cv2.VideoCapture(GST_PIPELINE, cv2.CAP_GSTREAMER)
-init_shared_memory()
-
-if not cap.isOpened():
-    print("카메라를 열 수 없습니다. GStreamer 파이프라인을 확인하세요.")
-    print(f"EARSYS_GST_PIPELINE={GST_PIPELINE}")
-    exit()
-
-# ==============================
-# 메인 루프
-# ==============================
-try:
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("프레임을 읽을 수 없습니다.")
-            break
-
-        # 좌우 반전 (거울 효과)
-        frame = cv2.flip(frame, 1)
-
-        # 프레임 크기 저장
-        height, width = frame.shape[:2]
-
-        # OpenCV(BGR) → MediaPipe(RGB) 변환
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-        # MediaPipe 이미지 객체 생성
-        mp_image = mp.Image(
-            image_format=mp.ImageFormat.SRGB,
-            data=rgb_frame
-        )
-
-        # 타임스탬프 생성 (밀리초 단위)
-        timestamp_ms = int(time.time() * 1000)
-
-        # 얼굴 랜드마크 검출
-        result = landmarker.detect_for_video(mp_image, timestamp_ms)
-
-        # 기본 상태
-        bridge_status = STATUS_AWAKE
-
-        # 얼굴이 검출된 경우
-        if result.face_landmarks:
-            face_landmarks = result.face_landmarks[0]
-
-            # 눈 좌표 추출
-            left_eye = get_eye_points(face_landmarks, LEFT_EYE, width, height)
-            right_eye = get_eye_points(face_landmarks, RIGHT_EYE, width, height)
-
-            # EAR 계산
-            left_ear = calculate_ear(left_eye)
-            right_ear = calculate_ear(right_eye)
-            ear = (left_ear + right_ear) / 2.0
-
-            # 눈 감김 여부 판단
-            if ear < EAR_THRESHOLD:
-                closed_frames += 1
             else:
                 closed_frames = 0
-                alarm_on = False
+                alarm_triggered = False
+                status = STATUS_NO_FACE
 
-            # 졸음 판정
-            if closed_frames >= CLOSED_FRAMES_THRESHOLD:
-                bridge_status = STATUS_DROWSY
-                if not alarm_on:
-                    play_alarm()
-                    alarm_on = True
+            shm.write_status(status)
 
-        else:
-            # 얼굴 미검출 시 초기화
-            closed_frames = 0
-            alarm_on = False
-            bridge_status = STATUS_NO_FACE
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt: 감지 루프를 종료합니다.")
 
-        # LVGL 연동 공유 메모리 갱신
-        write_status_shm(bridge_status)
-except KeyboardInterrupt:
-    print("종료 요청으로 감지 루프를 중단합니다.")
 
-# ==============================
-# 자원 해제
-# ==============================
-write_status_shm(STATUS_AWAKE)
-if shm_obj is not None:
-    shm_obj.close()
-cap.release()
+# ---------------------------------------------------------------------------
+# 진입점
+# ---------------------------------------------------------------------------
+
+def main() -> int:
+    """
+    EARSYS 메인 함수.
+
+    반환값:
+        0 = 정상 종료, 1 = 오류 종료
+    """
+    try:
+        with ShmBridge() as shm, FaceDetector() as detector, GstreamerCamera() as camera:
+            run_detection(camera, detector, shm)
+    except FileNotFoundError as exc:
+        logger.error("모델 파일 없음: %s", exc)
+        return 1
+    except RuntimeError as exc:
+        logger.error("카메라 오류: %s", exc)
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("예기치 않은 오류: %s", exc)
+        return 1
+
+    logger.info("EARSYS 정상 종료")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
