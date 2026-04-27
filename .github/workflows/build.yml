@@ -53,6 +53,7 @@ jobs:
           nuitka-version: "2.7"
           script-name: main.py
           mode: onefile
+          include-package: earsys
           include-data-files: |
             face_landmarker.task=face_landmarker.task
           output-file: earsys-linux-${{ matrix.arch }}
