@@ -57,8 +57,6 @@ jobs:
             face_landmarker.task=face_landmarker.task
           output-file: earsys-linux-${{ matrix.arch }}
           assume-yes-for-downloads: true
-          # MediaPipe 가 내부적으로 사용하는 모듈/공유 라이브러리 추적
-          follow-imports: true
 
       # -----------------------------------------------------------------------
       # 빌드 결과물 업로드
@@ -67,7 +65,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: earsys-linux-${{ matrix.arch }}
-          path: build/earsys-linux-${{ matrix.arch }}.bin
+          path: build/earsys-linux-${{ matrix.arch }}
           if-no-files-found: error
           include-hidden-files: true
 
