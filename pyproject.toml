@@ -12,5 +12,14 @@ dependencies = [
 [project.scripts]
 earsys = "main:main"
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+# earsys/ 패키지를 루트에서 자동 탐색
+where = ["."]
+include = ["earsys*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
