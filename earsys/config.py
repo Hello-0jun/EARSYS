@@ -41,18 +41,20 @@ def _resolve_model_path() -> Path:
 MODEL_PATH: Path = _resolve_model_path()
 
 # ---------------------------------------------------------------------------
-# 공유 메모리
+# UDS 소켓
 # ---------------------------------------------------------------------------
-# POSIX SHM 이름은 "/" 로 시작하는 절대 이름 형식을 권장합니다.
-SHM_NAME: str = os.getenv("EARSYS_SHM_NAME", "/earsys_drowsy_shm")
+# abstract namespace 주소 (첫 바이트 = '\x00')
+UDS_EYE_ADDR: bytes = b"\x00sleepcare/eye"
 
-# SHM 레이아웃 (바이트 오프셋)
-SHM_SIZE = 32
-OFF_MAGIC = 0       # 4 bytes  : magic "EARS"
-OFF_VERSION = 4     # 4 bytes  : 프로토콜 버전 (uint32 LE)
-OFF_SEQ = 8         # 4 bytes  : 시퀀스 번호 (seqlock, uint32 LE)
-OFF_STATUS = 12     # 4 bytes  : 상태 코드 (uint32 LE)
-SHM_PROTOCOL_VERSION = 1
+# EyeFrame 프로토콜
+EYE_FRAME_MAGIC   = b"SEYE"
+EYE_FRAME_VERSION = 1
+EYE_FRAME_FORMAT  = "<4sBBHfIQ"   # 24 bytes
+EYE_FRAME_SIZE    = 24
+
+# EAR → eye_score 변환 임계값
+EAR_OPEN_THR   = 0.30   # EAR >= 이 값 → score = 0.0
+EAR_CLOSED_THR = 0.15   # EAR <= 이 값 → score = 1.0
 
 # ---------------------------------------------------------------------------
 # 카메라 (GStreamer)
@@ -82,7 +84,7 @@ EAR_THRESHOLD: float = float(os.getenv("EARSYS_EAR_THRESHOLD", "0.23"))
 CLOSED_FRAMES_THRESHOLD: int = int(os.getenv("EARSYS_CLOSED_FRAMES", "20"))
 
 # ---------------------------------------------------------------------------
-# 상태 코드 (SHM 프로토콜)
+# 상태 코드
 # ---------------------------------------------------------------------------
 STATUS_AWAKE = 0
 STATUS_DROWSY = 1

@@ -9,7 +9,6 @@ EARSYS — EAR 기반 졸음 감지 시스템 진입점.
 
 환경변수:
     EARSYS_MODEL_PATH       face_landmarker.task 경로 (기본: 프로젝트 루트)
-    EARSYS_SHM_NAME         POSIX SHM 이름 (기본: /earsys_drowsy_shm)
     EARSYS_GST_PIPELINE     GStreamer 파이프라인 문자열
     EARSYS_EAR_THRESHOLD    눈 감김 EAR 임계값 (기본: 0.23)
     EARSYS_CLOSED_FRAMES    졸음 판정 연속 프레임 수 (기본: 20)
@@ -37,7 +36,7 @@ from earsys.config import (
 )
 from earsys.detector import FaceDetector
 from earsys.ear import average_ear, calculate_ear, get_eye_points
-from earsys.shm_bridge import ShmBridge
+from earsys.uds_bridge import UdsBridge
 
 # ---------------------------------------------------------------------------
 # 로깅 설정
@@ -54,7 +53,7 @@ logger = logging.getLogger("earsys.main")
 # 감지 루프
 # ---------------------------------------------------------------------------
 
-def run_detection(camera: GstreamerCamera, detector: FaceDetector, shm: ShmBridge) -> None:
+def run_detection(camera: GstreamerCamera, detector: FaceDetector, bridge: UdsBridge) -> None:
     """메인 감지 루프. KeyboardInterrupt 시 정상 종료합니다."""
     closed_frames: int = 0
     alarm_triggered: bool = False
@@ -75,7 +74,7 @@ def run_detection(camera: GstreamerCamera, detector: FaceDetector, shm: ShmBridg
             if face_landmarks_list:
                 landmarks = face_landmarks_list[0]
 
-                left_eye = get_eye_points(landmarks, LEFT_EYE_INDICES, width, height)
+                left_eye  = get_eye_points(landmarks, LEFT_EYE_INDICES,  width, height)
                 right_eye = get_eye_points(landmarks, RIGHT_EYE_INDICES, width, height)
 
                 ear = average_ear(calculate_ear(left_eye), calculate_ear(right_eye))
@@ -95,12 +94,14 @@ def run_detection(camera: GstreamerCamera, detector: FaceDetector, shm: ShmBridg
                 else:
                     status = STATUS_AWAKE
 
+                # eye_score는 ear 값으로 항상 계산
+                bridge.send(status=status, ear=ear)
+
             else:
                 closed_frames = 0
                 alarm_triggered = False
-                status = STATUS_NO_FACE
-
-            shm.write_status(status)
+                # 얼굴 미검출: eye_score = 0.0 (ear=0.0 전달)
+                bridge.send(status=STATUS_NO_FACE, ear=0.0)
 
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt: 감지 루프를 종료합니다.")
@@ -118,8 +119,8 @@ def main() -> int:
         0 = 정상 종료, 1 = 오류 종료
     """
     try:
-        with ShmBridge() as shm, FaceDetector() as detector, GstreamerCamera() as camera:
-            run_detection(camera, detector, shm)
+        with UdsBridge() as bridge, FaceDetector() as detector, GstreamerCamera() as camera:
+            run_detection(camera, detector, bridge)
     except FileNotFoundError as exc:
         logger.error("모델 파일 없음: %s", exc)
         return 1
