@@ -62,8 +62,7 @@ EAR_CLOSED_THR = 0.15   # EAR <= 이 값 → score = 1.0
 GST_PIPELINE: str = os.getenv(
     "EARSYS_GST_PIPELINE",
     (
-    "libcamera-vid -t 0 --inline --listen -o - | "
-    "gst-launch-1.0 fdsrc ! h264parse ! v4l2h264dec ! videoconvert ! appsink name=appsink"
+    "libcamerasrc ! video/x-raw,width=1640,height=922,format=NV12 ! videoconvert ! video/x-raw,format=BGR ! appsink name=appsink sync=false drop=true max-buffers=2"
     ),
 )
 
