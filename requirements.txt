@@ -7,10 +7,4 @@ mediapipe==0.10.18
 opencv-python>=4.8.0
 numpy>=1.24.0
 
-# 빌드
-nuitka>=2.7
-ordered-set>=4.1.0
-zstandard>=0.20.0
-
-# 테스트
 pytest>=8.0.0
