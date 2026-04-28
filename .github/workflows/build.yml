@@ -45,8 +45,6 @@ jobs:
 
       # -----------------------------------------------------------------------
       # Nuitka-Action 빌드
-      # face_landmarker.task 를 onefile 에 포함시킨다.
-      # 런타임 경로 해석: earsys/config.py _resolve_model_path() 참조.
       # -----------------------------------------------------------------------
       - name: Nuitka 빌드 (${{ matrix.arch }})
         uses: Nuitka/Nuitka-Action@v1.3

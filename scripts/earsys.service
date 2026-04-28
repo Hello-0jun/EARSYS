@@ -1,17 +1,27 @@
 [Unit]
-Description=EARSYS — EAR-based Drowsiness Detection
-Documentation=https://github.com/yourname/EARSYS
-After=network.target
+Description=EARSYS — EAR 기반 졸음 감지 시스템
+Documentation=https://github.com/WhiPaper/EARSYS
+After=graphical.target
+Wants=graphical.target
 
 [Service]
 Type=simple
-User=pi
-Group=pi
-WorkingDirectory=/home/pi/EARSYS
+User=root
+Group=root
+
+WorkingDirectory=/opt/earsys
+
+EnvironmentFile=-/etc/earsys.env
 Environment="EARSYS_LOG_LEVEL=INFO"
-ExecStart=/home/pi/EARSYS/.venv/bin/python main.py
+Environment="EARSYS_EAR_THRESHOLD=0.23"
+Environment="EARSYS_CLOSED_FRAMES=20"
+
+ExecStart=/opt/earsys/earsys
+
 Restart=on-failure
 RestartSec=5s
+TimeoutStopSec=10s
+
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=earsys
@@ -20,5 +30,9 @@ SyslogIdentifier=earsys
 StartLimitInterval=600
 StartLimitBurst=5
 
+# 보안 강화
+PrivateTmp=true
+NoNewPrivileges=true
+
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target
