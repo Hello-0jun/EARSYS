@@ -66,42 +66,48 @@ def run_detection(camera: GstreamerCamera, detector: FaceDetector, bridge: UdsBr
 
     try:
         for bgr_frame in camera.frames(flip=True):
-            height, width = bgr_frame.shape[:2]
-            rgb_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
+            try:
+                height, width = bgr_frame.shape[:2]
+                rgb_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
 
-            face_landmarks_list = detector.detect(rgb_frame)
+                face_landmarks_list = detector.detect(rgb_frame)
 
-            if face_landmarks_list:
-                landmarks = face_landmarks_list[0]
+                if face_landmarks_list:
+                    landmarks = face_landmarks_list[0]
 
-                left_eye  = get_eye_points(landmarks, LEFT_EYE_INDICES,  width, height)
-                right_eye = get_eye_points(landmarks, RIGHT_EYE_INDICES, width, height)
+                    left_eye  = get_eye_points(landmarks, LEFT_EYE_INDICES,  width, height)
+                    right_eye = get_eye_points(landmarks, RIGHT_EYE_INDICES, width, height)
 
-                ear = average_ear(calculate_ear(left_eye), calculate_ear(right_eye))
+                    ear = average_ear(calculate_ear(left_eye), calculate_ear(right_eye))
 
-                if ear < EAR_THRESHOLD:
-                    closed_frames += 1
+                    if ear < EAR_THRESHOLD:
+                        closed_frames += 1
+                    else:
+                        closed_frames = 0
+                        alarm_triggered = False
+
+                    if closed_frames >= CLOSED_FRAMES_THRESHOLD:
+                        status = STATUS_DROWSY
+                        if not alarm_triggered:
+                            play_alarm()
+                            alarm_triggered = True
+                            logger.warning("졸음 감지! EAR=%.3f, 연속 프레임=%d", ear, closed_frames)
+                    else:
+                        status = STATUS_AWAKE
+
+                    # eye_score는 ear 값으로 항상 계산
+                    bridge.send(status=status, ear=ear)
+
                 else:
                     closed_frames = 0
                     alarm_triggered = False
-
-                if closed_frames >= CLOSED_FRAMES_THRESHOLD:
-                    status = STATUS_DROWSY
-                    if not alarm_triggered:
-                        play_alarm()
-                        alarm_triggered = True
-                        logger.warning("졸음 감지! EAR=%.3f, 연속 프레임=%d", ear, closed_frames)
-                else:
-                    status = STATUS_AWAKE
-
-                # eye_score는 ear 값으로 항상 계산
-                bridge.send(status=status, ear=ear)
-
-            else:
-                closed_frames = 0
-                alarm_triggered = False
-                # 얼굴 미검출: eye_score = 0.0 (ear=0.0 전달)
-                bridge.send(status=STATUS_NO_FACE, ear=0.0)
+                    # 얼굴 미검출: eye_score = 0.0 (ear=0.0 전달)
+                    bridge.send(status=STATUS_NO_FACE, ear=0.0)
+            
+            except Exception as e:
+                logger.error("프레임 처리 중 오류가 발생했습니다: %s", e)
+                # 단일 프레임 오류 발생 시 프로그램이 종료되지 않도록 다음 프레임으로 넘어갑니다.
+                continue
 
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt: 감지 루프를 종료합니다.")
