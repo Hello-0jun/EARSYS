@@ -50,6 +50,7 @@ class FaceDetector:
         )
         self._landmarker = FaceLandmarker.create_from_options(options)
         self._start_ns: int = time.monotonic_ns()
+        self._last_ms: int = -1
         logger.info("FaceDetector 초기화 완료: 모델=%s", model_path)
 
     # ------------------------------------------------------------------
@@ -99,4 +100,8 @@ class FaceDetector:
         시스템 시계 조정에 의한 역행을 방지합니다.
         MediaPipe VIDEO 모드는 타임스탬프 단조 증가를 요구합니다.
         """
-        return (time.monotonic_ns() - self._start_ns) // 1_000_000
+        current_ms = (time.monotonic_ns() - self._start_ns) // 1_000_000
+        if current_ms <= self._last_ms:
+            current_ms = self._last_ms + 1
+        self._last_ms = current_ms
+        return current_ms
