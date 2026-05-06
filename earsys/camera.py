@@ -1,8 +1,8 @@
 """
-카메라 추상화 레이어.
+Camera abstraction layer.
 
-GStreamer(libcamerasrc) 백엔드를 기본으로 사용하며,
-환경변수 EARSYS_GST_PIPELINE 으로 파이프라인을 재정의할 수 있습니다.
+Uses the GStreamer (libcamerasrc) backend by default,
+and the pipeline can be overridden with the EARSYS_GST_PIPELINE environment variable.
 """
 
 from __future__ import annotations
@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 
 class GstreamerCamera:
     """
-    OpenCV + GStreamer 백엔드 카메라 래퍼.
+    OpenCV + GStreamer camera wrapper.
 
-    컨텍스트 매니저 또는 이터레이터로 사용합니다:
+    Use it as a context manager or iterator:
 
         with GstreamerCamera() as cam:
             for bgr_frame in cam.frames():
@@ -34,43 +34,43 @@ class GstreamerCamera:
         self._cap: cv2.VideoCapture | None = None
 
     # ------------------------------------------------------------------
-    # 공개 인터페이스
+    # Public interface
     # ------------------------------------------------------------------
 
     def open(self) -> None:
-        """카메라 스트림을 엽니다. 실패하면 RuntimeError를 발생시킵니다."""
+        """Open the camera stream. Raise RuntimeError on failure."""
         self._cap = cv2.VideoCapture(self._pipeline, cv2.CAP_GSTREAMER)
         if not self._cap.isOpened():
             self._cap = None
             raise RuntimeError(
-                "카메라를 열 수 없습니다.\n"
-                f"GStreamer 파이프라인을 확인하세요: {self._pipeline}\n"
-                "환경변수 EARSYS_GST_PIPELINE 로 파이프라인을 재정의할 수 있습니다."
+                "Unable to open camera.\n"
+                f"Check the GStreamer pipeline: {self._pipeline}\n"
+                "You can override the pipeline with the EARSYS_GST_PIPELINE environment variable."
             )
-        logger.info("카메라 오픈 완료: %s", self._pipeline[:60])
+        logger.info("Camera opened: %s", self._pipeline[:60])
 
     def read(self) -> np.ndarray | None:
         """
-        한 프레임을 읽어 BGR NumPy 배열로 반환합니다.
+        Read one frame and return it as a BGR NumPy array.
 
-        프레임 읽기에 실패하면 None을 반환합니다.
+        Return None if frame capture fails.
         """
         if self._cap is None:
             return None
         ret, frame = self._cap.read()
         if not ret:
-            logger.warning("프레임 읽기 실패")
+            logger.warning("Failed to read frame")
             return None
         return frame
 
     def frames(self, flip: bool = True) -> Iterator[np.ndarray]:
         """
-        연속 프레임을 생성하는 제너레이터.
+        Generator that yields continuous frames.
 
-        매개변수:
-            flip: True이면 좌우 반전(거울 효과)을 적용합니다.
+        Parameters:
+            flip: If True, apply a horizontal flip (mirror effect).
 
-        읽기 실패 시 StopIteration 하여 루프를 종료합니다.
+        Stops the loop by returning when frame capture fails.
         """
         while True:
             frame = self.read()
@@ -81,14 +81,14 @@ class GstreamerCamera:
             yield frame
 
     def release(self) -> None:
-        """카메라 자원을 해제합니다."""
+        """Release camera resources."""
         if self._cap is not None:
             self._cap.release()
             self._cap = None
-            logger.debug("카메라 자원 해제 완료")
+            logger.debug("Camera resources released")
 
     # ------------------------------------------------------------------
-    # 컨텍스트 매니저 지원
+    # Context manager support
     # ------------------------------------------------------------------
 
     def __enter__(self) -> "GstreamerCamera":
@@ -99,7 +99,7 @@ class GstreamerCamera:
         self.release()
 
     # ------------------------------------------------------------------
-    # 이터레이터 지원 (직접 for 루프 사용 시)
+    # Iterator support (for direct for-loop usage)
     # ------------------------------------------------------------------
 
     def __iter__(self) -> Iterator[np.ndarray]:

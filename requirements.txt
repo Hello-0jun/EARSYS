@@ -1,8 +1,8 @@
-# EARSYS 의존 패키지
-# amd64, arm64 공통 (mediapipe==0.10.18 manylinux 공식 휠 지원)
-# Python 3.12 필요
+# EARSYS dependencies
+# Shared for amd64 and arm64 (mediapipe==0.10.18 official manylinux wheel supported)
+# Requires Python 3.12
 
-# 컴퓨터 비전 / 수치 계산
+# Computer vision / numerical computing
 mediapipe==0.10.18
 opencv-python>=4.8.0
 numpy>=1.24.0

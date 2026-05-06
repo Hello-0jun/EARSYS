@@ -1,11 +1,10 @@
 """
-UDS(Unix Domain Socket) 브리지.
+UDS (Unix Domain Socket) bridge.
 
-sleepcare-ws 가 바인딩한 @sleepcare/eye abstract-namespace 소켓으로
-EyeFrame 을 SOCK_DGRAM 으로 전송한다.
+Sends EyeFrame packets as SOCK_DGRAM datagrams to the @sleepcare/eye abstract-namespace socket
+bound by sleepcare-ws.
 
-수신자(sleepcare-ws)가 실행 중이 아니면 sendto 가 ECONNREFUSED 를 반환하며,
-이 경우 예외 없이 조용히 드롭한다.
+If the receiver (sleepcare-ws) is not running, sendto returns ECONNREFUSED and the packet is dropped quietly.
 """
 
 from __future__ import annotations
@@ -22,23 +21,35 @@ from earsys.config import (
     EYE_FRAME_MAGIC,
     EYE_FRAME_VERSION,
     STATUS_AWAKE,
+    STATUS_DROWSY,
+    STATUS_NO_FACE,
     UDS_EYE_ADDR,
 )
 
 logger = logging.getLogger(__name__)
 
 
+def _status_name(status: int) -> str:
+    """Convert a status code to a name string."""
+    status_map = {
+        STATUS_AWAKE: "AWAKE",
+        STATUS_DROWSY: "DROWSY",
+        STATUS_NO_FACE: "NO_FACE",
+    }
+    return status_map.get(status, f"UNKNOWN({status})")
+
+
 def _ear_to_score(ear: float) -> float:
-    """EAR 값을 eye_score (0.0~1.0)로 변환한다."""
+    """Convert an EAR value to eye_score (0.0 to 1.0)."""
     span = EAR_OPEN_THR - EAR_CLOSED_THR
     return max(0.0, min(1.0, (EAR_OPEN_THR - ear) / span))
 
 
 class UdsBridge:
     """
-    EyeFrame 을 @sleepcare/eye UDS 소켓으로 전송하는 클래스.
+    Class that sends EyeFrame packets to the @sleepcare/eye UDS socket.
 
-    컨텍스트 매니저를 지원한다:
+    Supports the context manager protocol:
         with UdsBridge() as bridge:
             bridge.send(status=STATUS_AWAKE, ear=0.32)
     """
@@ -52,16 +63,16 @@ class UdsBridge:
         self._open()
 
     # ------------------------------------------------------------------
-    # 공개 인터페이스
+    # Public interface
     # ------------------------------------------------------------------
 
     def send(self, status: int, ear: float) -> None:
         """
-        EyeFrame 을 생성하여 전송한다.
+        Build and send an EyeFrame.
 
-        매개변수:
-            status: STATUS_* 상수 (0=awake, 1=drowsy, 2=no-face)
-            ear:    EAR 값 (float). 얼굴 미검출 시 0.0 전달.
+        Parameters:
+            status: STATUS_* constant (0=awake, 1=drowsy, 2=no-face)
+            ear: EAR value (float). Pass 0.0 when no face is detected.
         """
         if self._sock is None:
             return
@@ -69,6 +80,7 @@ class UdsBridge:
         eye_score = _ear_to_score(ear)
         self._seq += 1
         ts_ms = int(time.time() * 1000)
+        status_name = _status_name(status)
 
         frame = struct.pack(
             EYE_FRAME_FORMAT,
@@ -83,31 +95,35 @@ class UdsBridge:
 
         try:
             self._sock.sendto(frame, UDS_EYE_ADDR)
+            logger.info(
+                "[uds] fused_score sent: status=%s(code=%d) ear=%.3f eye_score=%.3f seq=%d",
+                status_name,
+                status,
+                ear,
+                eye_score,
+                self._seq,
+            )
             if self._was_unavailable:
                 logger.info("[uds] @sleepcare/eye delivery recovered")
                 self._was_unavailable = False
                 self._drop_count = 0
         except OSError as exc:
-            # ECONNREFUSED: sleepcare-ws 미실행, 조용히 드롭
+            # ECONNREFUSED: sleepcare-ws is not running, drop quietly.
             if exc.errno in (111, 2):  # 111 = ECONNREFUSED, 2 = ENOENT
                 self._was_unavailable = True
                 self._drop_count += 1
                 now = time.time()
                 if (now - self._last_drop_log_ts) >= 5.0:
-                    logger.warning(
-                        "[uds] @sleepcare/eye unavailable(errno=%s), dropped=%d",
-                        exc.errno,
-                        self._drop_count,
-                    )
+                    logger.warning("[uds] @sleepcare/eye unavailable(errno=%s), dropped=%d", exc.errno, self._drop_count)
                     self._last_drop_log_ts = now
                     self._drop_count = 0
                 return
 
             if exc.errno not in (111,):  # 111 = ECONNREFUSED
-                logger.warning("[uds] sendto 오류: %s", exc)
+                logger.warning("[uds] sendto error: %s", exc)
 
     def close(self) -> None:
-        """소켓을 닫는다. abstract namespace는 자동으로 해제된다."""
+        """Close the socket. The abstract namespace is released automatically."""
         if self._sock is not None:
             try:
                 self._sock.close()
@@ -117,7 +133,7 @@ class UdsBridge:
                 self._sock = None
 
     # ------------------------------------------------------------------
-    # 컨텍스트 매니저 지원
+    # Context manager support
     # ------------------------------------------------------------------
 
     def __enter__(self) -> "UdsBridge":
@@ -127,14 +143,14 @@ class UdsBridge:
         self.close()
 
     # ------------------------------------------------------------------
-    # 내부 구현
+    # Internal implementation
     # ------------------------------------------------------------------
 
     def _open(self) -> None:
         try:
             self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-            # 발신 전용이므로 bind 불필요
-            logger.info("[uds] UdsBridge 소켓 생성 완료 → @sleepcare/eye")
+            # No bind is needed because this is send-only.
+            logger.info("[uds] UdsBridge socket created -> @sleepcare/eye")
         except OSError as exc:
-            logger.error("[uds] 소켓 생성 실패: %s", exc)
+            logger.error("[uds] socket creation failed: %s", exc)
             self._sock = None

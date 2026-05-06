@@ -1,8 +1,8 @@
 """
-비동기 UDS 전송 브리지.
+Asynchronous UDS transmission bridge.
 
-기존의 `UdsBridge` 인스턴스를 내부에 보유하고, 별도 워커 스레드에서
-전송을 수행하여 메인 감지 루프의 블로킹을 방지합니다.
+Holds an internal UdsBridge instance and sends data from a separate worker thread
+to keep the main detection loop from blocking.
 """
 from __future__ import annotations
 
@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 
 
 class UdsAsyncBridge:
-    """비동기 전송을 제공하는 UDS 브리지 래퍼.
+    """UDS bridge wrapper that provides asynchronous sending.
 
-    컨텍스트 매니저를 지원하며 `send()` 는 메인 스레드에서 빠르게 큐에 넣습니다.
-    내부 워커가 큐를 소비하여 실제 `UdsBridge.send()` 를 호출합니다.
+    Supports the context manager protocol and queues `send()` calls quickly on the main thread.
+    The internal worker consumes the queue and invokes `UdsBridge.send()`.
     """
 
     def __init__(self, max_queue: int = 512, worker_join_timeout: float = 2.0) -> None:
@@ -36,8 +36,9 @@ class UdsAsyncBridge:
         self._drop_count = 0
 
     def send(self, status: int, ear: float) -> None:
-        """비동기으로 상태를 큐에 넣습니다. 큐가 포화면 내부적으로 드롭합니다."""
+        """Queue a status update asynchronously. Drop internally if the queue is full."""
         try:
+            logger.info("[uds-async] fused_score received: status=%s ear=%.3f", status, ear)
             self._queue.put_nowait((status, ear))
         except queue.Full:
             self._drop_count += 1
@@ -45,7 +46,7 @@ class UdsAsyncBridge:
                 logger.warning("[uds-async] queue full, dropped=%d", self._drop_count)
 
     def close(self) -> None:
-        """워커 종료를 요청하고 내부 브리지를 닫습니다."""
+        """Request worker shutdown and close the internal bridge."""
         self._stop_event.set()
         if self._worker is not None:
             self._worker.join(self._worker_join_timeout)
@@ -61,7 +62,7 @@ class UdsAsyncBridge:
         self.close()
 
     def _run(self) -> None:
-        """워커 루프: 큐에서 메시지를 꺼내 실제 전송을 수행합니다."""
+        """Worker loop: pull messages from the queue and send them."""
         while not self._stop_event.is_set() or not self._queue.empty():
             try:
                 status, ear = self._queue.get(timeout=0.1)
@@ -69,11 +70,12 @@ class UdsAsyncBridge:
                 continue
 
             try:
+                logger.info("[uds-async] fused_score sent: status=%s ear=%.3f", status, ear)
                 self._bridge.send(status=status, ear=ear)
-            except Exception as exc:  # 보내는 도중 발생하는 예외는 로깅 후 무시
+            except Exception as exc:  # Log and ignore exceptions raised during send.
                 logger.exception("[uds-async] send failed: %s", exc)
             finally:
                 self._queue.task_done()
 
-        # 워커 종료
+        # Worker exit
         logger.debug("[uds-async] worker exiting")

@@ -1,7 +1,7 @@
 """
-MediaPipe Face Landmarker 래퍼 클래스.
+MediaPipe Face Landmarker wrapper class.
 
-VIDEO 모드로 초기화하며, 단조 증가하는 타임스탬프를 내부에서 관리합니다.
+Initializes in VIDEO mode and manages a monotonically increasing timestamp internally.
 """
 
 from __future__ import annotations
@@ -19,12 +19,12 @@ logger = logging.getLogger(__name__)
 
 class FaceDetector:
     """
-    MediaPipe FaceLandmarker를 래핑하는 클래스.
+    Wrapper around MediaPipe FaceLandmarker.
 
-    특징:
-    - 모델 파일 존재 여부를 사전에 검증합니다.
-    - VIDEO 모드에 필요한 단조 증가 타임스탬프를 `time.monotonic_ns()`로 보장합니다.
-    - 컨텍스트 매니저(`with` 문)를 지원합니다.
+    Features:
+    - Verifies the model file exists before initialization.
+    - Guarantees the monotonically increasing timestamp required by VIDEO mode via time.monotonic_ns().
+    - Supports the context manager (`with`) protocol.
     """
 
     def __init__(
@@ -34,8 +34,8 @@ class FaceDetector:
     ) -> None:
         if not model_path.exists():
             raise FileNotFoundError(
-                f"Face Landmarker 모델 파일을 찾을 수 없습니다: {model_path}\n"
-                "환경변수 EARSYS_MODEL_PATH 또는 프로젝트 루트에 face_landmarker.task를 확인하세요."
+                f"Face Landmarker model file not found: {model_path}\n"
+                "Check EARSYS_MODEL_PATH or place face_landmarker.task in the project root."
             )
 
         BaseOptions = mp.tasks.BaseOptions
@@ -51,22 +51,22 @@ class FaceDetector:
         self._landmarker = FaceLandmarker.create_from_options(options)
         self._start_ns: int = time.monotonic_ns()
         self._last_ms: int = -1
-        logger.info("FaceDetector 초기화 완료: 모델=%s", model_path)
+        logger.info("FaceDetector initialized: model=%s", model_path)
 
     # ------------------------------------------------------------------
-    # 공개 인터페이스
+    # Public interface
     # ------------------------------------------------------------------
 
     def detect(self, rgb_frame) -> list:
         """
-        RGB NumPy 배열 프레임에서 얼굴 랜드마크를 검출합니다.
+        Detect face landmarks from an RGB NumPy array frame.
 
-        매개변수:
-            rgb_frame: H×W×3 uint8 NumPy 배열 (RGB 포맷).
+        Parameters:
+            rgb_frame: HxWx3 uint8 NumPy array in RGB format.
 
-        반환값:
-            `result.face_landmarks` 리스트.
-            얼굴이 없으면 빈 리스트를 반환합니다.
+        Returns:
+            The result.face_landmarks list.
+            Returns an empty list when no face is detected.
         """
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
         timestamp_ms = self._monotonic_ms()
@@ -74,12 +74,12 @@ class FaceDetector:
         return result.face_landmarks
 
     def close(self) -> None:
-        """MediaPipe landmarker를 해제합니다."""
+        """Release the MediaPipe landmarker."""
         self._landmarker.close()
-        logger.debug("FaceDetector 해제 완료")
+        logger.debug("FaceDetector released")
 
     # ------------------------------------------------------------------
-    # 컨텍스트 매니저 지원
+    # Context manager support
     # ------------------------------------------------------------------
 
     def __enter__(self) -> "FaceDetector":
@@ -89,16 +89,15 @@ class FaceDetector:
         self.close()
 
     # ------------------------------------------------------------------
-    # 내부 구현
+    # Internal implementation
     # ------------------------------------------------------------------
 
     def _monotonic_ms(self) -> int:
         """
-        프로세스 시작 이후 경과 시간(ms)을 단조 증가 정수로 반환합니다.
+        Return elapsed time in milliseconds since process start as a monotonically increasing integer.
 
-        `time.time()` 대신 `time.monotonic_ns()`를 사용하여
-        시스템 시계 조정에 의한 역행을 방지합니다.
-        MediaPipe VIDEO 모드는 타임스탬프 단조 증가를 요구합니다.
+        Use time.monotonic_ns() instead of time.time() to avoid moving backward when the system clock changes.
+        MediaPipe VIDEO mode requires monotonically increasing timestamps.
         """
         current_ms = (time.monotonic_ns() - self._start_ns) // 1_000_000
         if current_ms <= self._last_ms:

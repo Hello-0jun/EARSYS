@@ -1,20 +1,20 @@
 """
-EARSYS — EAR 기반 졸음 감지 시스템 진입점.
+EARSYS - entry point for the EAR-based drowsiness detection system.
 
-이 파일은 최소한의 진입점 역할만 합니다.
-비즈니스 로직은 earsys/ 패키지의 각 모듈에 위치합니다.
+This file only provides a minimal entry point.
+Business logic lives in the modules under the earsys/ package.
 
-실행:
+Run:
     python main.py
 
-환경변수:
-    EARSYS_MODEL_PATH       face_landmarker.task 경로 (기본: 프로젝트 루트)
-    EARSYS_GST_PIPELINE     GStreamer 파이프라인 문자열
-    EARSYS_EAR_THRESHOLD    눈 감김 EAR 임계값 (기본: 0.23)
-    EARSYS_CLOSED_FRAMES    졸음 판정 연속 프레임 수 (기본: 20)
-    EARSYS_LOG_LEVEL        로그 레벨 (기본: INFO)
-    EARSYS_CAMERA_REOPEN_SEC 카메라 재오픈 대기초 (기본: 2.0)
-    EARSYS_CAMERA_MAX_RETRIES 카메라 재오픈 최대 횟수 (기본: 0=무제한)
+Environment variables:
+    EARSYS_MODEL_PATH        Path to face_landmarker.task (default: project root)
+    EARSYS_GST_PIPELINE      GStreamer pipeline string
+    EARSYS_EAR_THRESHOLD     EAR threshold for closed eyes (default: 0.23)
+    EARSYS_CLOSED_FRAMES     Number of consecutive frames for drowsiness (default: 20)
+    EARSYS_LOG_LEVEL         Log level (default: INFO)
+    EARSYS_CAMERA_REOPEN_SEC Wait time before reopening the camera (default: 2.0)
+    EARSYS_CAMERA_MAX_RETRIES Maximum camera reopen attempts (default: 0 = unlimited)
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ from earsys.ear import average_ear, calculate_ear, get_eye_points
 from earsys.uds_async import UdsAsyncBridge as UdsBridge
 
 # ---------------------------------------------------------------------------
-# 로깅 설정
+# Logging configuration
 # ---------------------------------------------------------------------------
 logging.basicConfig(
     level=os.getenv("EARSYS_LOG_LEVEL", "INFO"),
@@ -53,16 +53,16 @@ logger = logging.getLogger("earsys.main")
 
 
 # ---------------------------------------------------------------------------
-# 감지 루프
+# Detection loop
 # ---------------------------------------------------------------------------
 
 def run_detection(camera: GstreamerCamera, detector: FaceDetector, bridge: UdsBridge) -> bool:
     """
-    메인 감지 루프.
+    Main detection loop.
 
-    반환값:
-        True  = 사용자 종료(KeyboardInterrupt)
-        False = 카메라 스트림 종료/오류로 루프 중단
+    Returns:
+        True  = user initiated shutdown (KeyboardInterrupt)
+        False = loop stopped because the camera stream ended or failed
     """
     closed_frames: int = 0
     alarm_triggered: bool = False
@@ -75,9 +75,13 @@ def run_detection(camera: GstreamerCamera, detector: FaceDetector, bridge: UdsBr
     sent_drowsy: int = 0
     sent_no_face: int = 0
     frame_errors: int = 0
+    sent_fused_scores: int = 0
+
+    # Track state changes: only suppress duplicate NO_FACE sends.
+    previous_status: int | None = None
 
     logger.info(
-        "감지 루프 시작 — EAR 임계값=%.2f, 연속 프레임=%d",
+        "Detection loop started - EAR threshold=%.2f, consecutive frames=%d",
         EAR_THRESHOLD,
         CLOSED_FRAMES_THRESHOLD,
     )
@@ -110,60 +114,70 @@ def run_detection(camera: GstreamerCamera, detector: FaceDetector, bridge: UdsBr
                         if not alarm_triggered:
                             play_alarm()
                             alarm_triggered = True
-                            logger.warning("졸음 감지! EAR=%.3f, 연속 프레임=%d", ear, closed_frames)
+                            logger.warning("Drowsiness detected! EAR=%.3f, consecutive frames=%d", ear, closed_frames)
                     else:
                         status = STATUS_AWAKE
 
-                    # eye_score는 ear 값으로 항상 계산
                     bridge.send(status=status, ear=ear)
+                    sent_fused_scores += 1
+                    previous_status = status
                     if status == STATUS_DROWSY:
                         sent_drowsy += 1
+                        logger.info("Sent DROWSY status: EAR=%.3f, consecutive frames=%d", ear, closed_frames)
                     else:
                         sent_awake += 1
+                        logger.info("Sent AWAKE status: EAR=%.3f", ear)
 
                 else:
                     closed_frames = 0
                     alarm_triggered = False
-                    # 얼굴 미검출: eye_score = 0.0 (ear=0.0 전달)
-                    bridge.send(status=STATUS_NO_FACE, ear=0.0)
-                    sent_no_face += 1
+                    status = STATUS_NO_FACE
+                    
+                    # Send over UDS only when the state changes.
+                    if status != previous_status:
+                        bridge.send(status=status, ear=0.0)
+                        sent_fused_scores += 1
+                        previous_status = status
+                        sent_no_face += 1
+                        logger.info("Sent NO_FACE status")
             
             except Exception as e:
                 frame_errors += 1
-                logger.error("프레임 처리 중 오류가 발생했습니다: %s", e)
+                logger.error("Error while processing frame: %s", e)
 
             now_mono = time.monotonic()
             if now_mono >= next_health_log:
                 uptime_sec = int(now_mono - start_monotonic)
                 logger.info(
-                    "헬스체크 uptime=%ss frames=%d awake=%d drowsy=%d no_face=%d frame_errors=%d",
+                    "Health check uptime=%ss frames=%d awake=%d drowsy=%d no_face=%d fused_scores=%d frame_errors=%d",
                     uptime_sec,
                     frames_total,
                     sent_awake,
                     sent_drowsy,
                     sent_no_face,
+                    sent_fused_scores,
                     frame_errors,
                 )
                 next_health_log = now_mono + health_interval_sec
 
     except KeyboardInterrupt:
-        logger.info("KeyboardInterrupt: 감지 루프를 종료합니다.")
+        logger.info("KeyboardInterrupt: stopping detection loop.")
         return True
 
-    logger.error("카메라 프레임 스트림이 종료되어 감지 루프를 중단합니다.")
+    logger.error("Camera frame stream ended, stopping detection loop.")
     return False
 
 
 # ---------------------------------------------------------------------------
-# 진입점
+# Entry point
 # ---------------------------------------------------------------------------
 
 def main() -> int:
     """
-    EARSYS 메인 함수.
+    Main EARSYS function.
 
-    반환값:
-        0 = 정상 종료, 1 = 오류 종료
+    Returns:
+        0 = normal exit, 1 = error exit
     """
     camera_reopen_sec = float(os.getenv("EARSYS_CAMERA_REOPEN_SEC", "2.0"))
     camera_max_retries = int(os.getenv("EARSYS_CAMERA_MAX_RETRIES", "0"))
@@ -176,36 +190,33 @@ def main() -> int:
                     with GstreamerCamera() as camera:
                         user_stopped = run_detection(camera, detector, bridge)
                         if user_stopped:
-                            logger.info("사용자 요청으로 EARSYS를 종료합니다.")
+                            logger.info("Shutting down EARSYS on user request.")
                             return 0
                 except RuntimeError as exc:
-                    logger.error("카메라 오픈/동작 오류: %s", exc)
+                    logger.error("Camera open/runtime error: %s", exc)
 
                 reopen_attempt += 1
                 if camera_max_retries > 0 and reopen_attempt > camera_max_retries:
-                    logger.error(
-                        "카메라 재오픈 재시도 한도 초과(%d회)로 종료합니다.",
-                        camera_max_retries,
-                    )
+                    logger.error("Exiting after exceeding camera reopen retry limit (%d).", camera_max_retries)
                     return 1
 
                 logger.warning(
-                    "카메라 재오픈 재시도 %d회 후 %.1f초 대기합니다.",
+                    "Retrying camera open %d time(s); waiting %.1f seconds.",
                     reopen_attempt,
                     camera_reopen_sec,
                 )
                 time.sleep(camera_reopen_sec)
     except FileNotFoundError as exc:
-        logger.error("모델 파일 없음: %s", exc)
+        logger.error("Model file not found: %s", exc)
         return 1
     except RuntimeError as exc:
-        logger.error("카메라 오류: %s", exc)
+        logger.error("Camera error: %s", exc)
         return 1
     except Exception as exc:  # noqa: BLE001
-        logger.exception("예기치 않은 오류: %s", exc)
+        logger.exception("Unexpected error: %s", exc)
         return 1
 
-    logger.info("EARSYS 정상 종료")
+    logger.info("EARSYS exited normally")
     return 0
 
 

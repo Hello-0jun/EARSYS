@@ -1,5 +1,5 @@
 """
-윈도우/Linux 수동 테스트용 시각화 스크립트.
+Visualization script for manual testing on Windows/Linux.
 """
 
 import cv2
@@ -69,7 +69,7 @@ def play_alarm():
 
 cap = cv2.VideoCapture(0)
 if not cap.isOpened():
-    raise SystemExit("카메라를 열 수 없습니다.")
+    raise SystemExit("Unable to open the camera.")
 
 closed_frames = 0
 alarm_on = False

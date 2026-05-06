@@ -1,5 +1,5 @@
 [Unit]
-Description=EARSYS — EAR 기반 졸음 감지 시스템
+Description=EARSYS - EAR-based drowsiness detection system
 Documentation=https://github.com/WhiPaper/EARSYS
 After=graphical.target
 Wants=graphical.target
@@ -26,11 +26,11 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=earsys
 
-# 비정상 종료 시 최대 5회 재시작 (10분 이내)
+# Restart up to 5 times on abnormal exit (within 10 minutes)
 StartLimitInterval=600
 StartLimitBurst=5
 
-# 보안 강화
+# Harden security
 PrivateTmp=true
 NoNewPrivileges=true
 
