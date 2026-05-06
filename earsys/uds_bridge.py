@@ -46,6 +46,9 @@ class UdsBridge:
     def __init__(self) -> None:
         self._sock: socket.socket | None = None
         self._seq: int = 0
+        self._drop_count: int = 0
+        self._last_drop_log_ts: float = 0.0
+        self._was_unavailable: bool = False
         self._open()
 
     # ------------------------------------------------------------------
@@ -80,8 +83,26 @@ class UdsBridge:
 
         try:
             self._sock.sendto(frame, UDS_EYE_ADDR)
+            if self._was_unavailable:
+                logger.info("[uds] @sleepcare/eye delivery recovered")
+                self._was_unavailable = False
+                self._drop_count = 0
         except OSError as exc:
             # ECONNREFUSED: sleepcare-ws 미실행, 조용히 드롭
+            if exc.errno in (111, 2):  # 111 = ECONNREFUSED, 2 = ENOENT
+                self._was_unavailable = True
+                self._drop_count += 1
+                now = time.time()
+                if (now - self._last_drop_log_ts) >= 5.0:
+                    logger.warning(
+                        "[uds] @sleepcare/eye unavailable(errno=%s), dropped=%d",
+                        exc.errno,
+                        self._drop_count,
+                    )
+                    self._last_drop_log_ts = now
+                    self._drop_count = 0
+                return
+
             if exc.errno not in (111,):  # 111 = ECONNREFUSED
                 logger.warning("[uds] sendto 오류: %s", exc)
 
