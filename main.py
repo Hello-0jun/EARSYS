@@ -39,7 +39,7 @@ from earsys.config import (
 )
 from earsys.detector import FaceDetector
 from earsys.ear import average_ear, calculate_ear, get_eye_points
-from earsys.uds_bridge import UdsBridge
+from earsys.uds_async import UdsAsyncBridge as UdsBridge
 
 # ---------------------------------------------------------------------------
 # 로깅 설정
