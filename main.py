@@ -26,7 +26,6 @@ import time
 
 import cv2
 
-from earsys.alarm import play_alarm
 from earsys.camera import GstreamerCamera
 from earsys.config import (
     CLOSED_FRAMES_THRESHOLD,
@@ -65,7 +64,7 @@ def run_detection(camera: GstreamerCamera, detector: FaceDetector, bridge: UdsBr
         False = loop stopped because the camera stream ended or failed
     """
     closed_frames: int = 0
-    alarm_triggered: bool = False
+    drowsy_logged: bool = False
     health_interval_sec: float = 10.0
     start_monotonic: float = time.monotonic()
     next_health_log: float = start_monotonic + health_interval_sec
@@ -107,13 +106,12 @@ def run_detection(camera: GstreamerCamera, detector: FaceDetector, bridge: UdsBr
                         closed_frames += 1
                     else:
                         closed_frames = 0
-                        alarm_triggered = False
+                        drowsy_logged = False
 
                     if closed_frames >= CLOSED_FRAMES_THRESHOLD:
                         status = STATUS_DROWSY
-                        if not alarm_triggered:
-                            play_alarm()
-                            alarm_triggered = True
+                        if not drowsy_logged:
+                            drowsy_logged = True
                             logger.warning("Drowsiness detected! EAR=%.3f, consecutive frames=%d", ear, closed_frames)
                     else:
                         status = STATUS_AWAKE
@@ -130,7 +128,7 @@ def run_detection(camera: GstreamerCamera, detector: FaceDetector, bridge: UdsBr
 
                 else:
                     closed_frames = 0
-                    alarm_triggered = False
+                    drowsy_logged = False
                     status = STATUS_NO_FACE
                     
                     # Send over UDS only when the state changes.

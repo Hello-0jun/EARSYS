@@ -9,5 +9,4 @@ __all__ = [
     "detector",
     "shm_bridge",
     "camera",
-    "alarm",
 ]

@@ -15,7 +15,6 @@ EARSYS는 MediaPipe Face Landmarker를 사용하여 카메라 영상에서 눈�
 
 ```
 카메라(GStreamer) ─→ MediaPipe FaceLandmarker ─→ EAR 계산 ─→ SHM 상태 기록
-                                                              └─→ 알람
 ```
 
 ---
@@ -34,8 +33,7 @@ EARSYS/
 │   ├── ear.py                   # EAR 계산 순수 함수
 │   ├── detector.py              # MediaPipe FaceLandmarker 래퍼
 │   ├── shm_bridge.py            # POSIX SHM 읽기/쓰기 (seqlock)
-│   ├── camera.py                # GStreamer 카메라 추상화
-│   └── alarm.py                 # 알람 인터페이스
+│   └── camera.py                # GStreamer 카메라 추상화
 │
 ├── tests/
 │   ├── test_ear.py              # EAR 함수 단위 테스트
