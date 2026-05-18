@@ -62,7 +62,10 @@ EAR_CLOSED_THR = 0.15   # EAR <= this value -> score = 1.0
 GST_PIPELINE: str = os.getenv(
     "EARSYS_GST_PIPELINE",
     (
-    "libcamerasrc ! video/x-raw,width=1640,height=922,format=NV12 ! videoconvert ! video/x-raw,format=BGR ! appsink name=appsink sync=false drop=true max-buffers=2"
+        "libcamerasrc ! "
+        "video/x-raw,width=640,height=480,format=NV12,framerate=30/1 ! "
+        "queue leaky=downstream max-size-buffers=1 ! "
+        "appsink drop=true max-buffers=1 sync=false"
     ),
 )
 

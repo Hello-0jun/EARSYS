@@ -90,7 +90,7 @@ def run_detection(camera: GstreamerCamera, detector: FaceDetector, bridge: UdsBr
             frames_total += 1
             try:
                 height, width = bgr_frame.shape[:2]
-                rgb_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
+                rgb_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_YUV2RGB_NV12)
 
                 face_landmarks_list = detector.detect(rgb_frame)
 
