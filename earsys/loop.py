@@ -12,7 +12,9 @@ import time
 from dataclasses import dataclass
 
 import cv2
+import mediapipe as mp
 import numpy as np
+from mediapipe.framework.formats import landmark_pb2
 
 from earsys.camera.capture import OpenCvCamera
 from earsys.config import (
@@ -43,11 +45,31 @@ _FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
 def _draw_landmarks(frame: np.ndarray, landmarks: list, width: int, height: int) -> None:
-    """Draw all 468 face landmarks as small dots."""
-    for lm in landmarks:
-        x = int(lm.x * width)
-        y = int(lm.y * height)
-        cv2.circle(frame, (x, y), 1, _LANDMARK_COLOR, -1)
+    """Draw face landmarks using MediaPipe's drawing utilities."""
+    face_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
+    face_landmarks_proto.landmark.extend([landmark_pb2.NormalizedLandmark(x=lm.x, y=lm.y, z=lm.z) for lm in landmarks])
+
+    mp.solutions.drawing_utils.draw_landmarks(
+        image=frame,
+        landmark_list=face_landmarks_proto,
+        connections=mp.solutions.face_mesh.FACEMESH_TESSELATION,
+        landmark_drawing_spec=None,
+        connection_drawing_spec=mp.solutions.drawing_styles.get_default_face_mesh_tesselation_style(),
+    )
+    mp.solutions.drawing_utils.draw_landmarks(
+        image=frame,
+        landmark_list=face_landmarks_proto,
+        connections=mp.solutions.face_mesh.FACEMESH_CONTOURS,
+        landmark_drawing_spec=None,
+        connection_drawing_spec=mp.solutions.drawing_styles.get_default_face_mesh_contours_style(),
+    )
+    mp.solutions.drawing_utils.draw_landmarks(
+        image=frame,
+        landmark_list=face_landmarks_proto,
+        connections=mp.solutions.face_mesh.FACEMESH_IRISES,
+        landmark_drawing_spec=None,
+        connection_drawing_spec=mp.solutions.drawing_styles.get_default_face_mesh_iris_connections_style(),
+    )
 
 
 def _draw_eye_overlay(
