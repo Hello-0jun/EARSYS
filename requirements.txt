@@ -1,6 +1,6 @@
 # EARSYS dependencies
-# Shared for amd64 and arm64 (mediapipe==0.10.18 official manylinux wheel supported)
-# Requires Python 3.12
+# Shared for amd64 and arm64.
+# Supports the Python range declared in pyproject.toml.
 
 # Computer vision / numerical computing
 mediapipe==0.10.18

@@ -2,10 +2,19 @@
 Visualization script for manual testing on Windows/Linux.
 """
 
+import os
+
+import pytest
+
+
+if os.getenv("EARSYS_RUN_VISUAL_TESTS") != "1":
+    pytest.skip("manual OpenCV visualization test", allow_module_level=True)
+
+import time
+
 import cv2
 import mediapipe as mp
 import numpy as np
-import time
 
 
 MODEL_PATH = "../face_landmarker.task"
@@ -105,7 +114,7 @@ while True:
     cv2.putText(frame, f"STATUS: {status_text}", (30, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
     cv2.putText(frame, f"CLOSED FRAMES: {closed_frames}", (30, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    cv2.imshow("EARSYS Visual Test (No SHM)", frame)
+    cv2.imshow("EARSYS Visual Test (No UDS)", frame)
     if cv2.waitKey(1) & 0xFF == 27:
         break
 

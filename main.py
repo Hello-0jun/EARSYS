@@ -9,7 +9,10 @@ Run:
 
 Environment variables:
     EARSYS_MODEL_PATH        Path to face_landmarker.task (default: project root)
-    EARSYS_GST_PIPELINE      GStreamer pipeline string
+    EARSYS_CAMERA_SOURCE     OpenCV camera index/path/URL (default: auto)
+    EARSYS_CAMERA_BACKEND    OpenCV backend: auto, gstreamer, v4l2, directshow, avfoundation
+    EARSYS_GST_PIPELINE      Optional GStreamer pipeline string
+    EARSYS_CAMERA_COLOR_FORMAT Input frame format: auto, bgr, rgb, nv12
     EARSYS_EAR_THRESHOLD     EAR threshold for closed eyes (default: 0.23)
     EARSYS_CLOSED_FRAMES     Number of consecutive frames for drowsiness (default: 20)
     EARSYS_LOG_LEVEL         Log level (default: INFO)
@@ -23,10 +26,11 @@ import logging
 import os
 import sys
 import time
+from dataclasses import dataclass
 
 import cv2
 
-from earsys.camera import GstreamerCamera
+from earsys.camera import OpenCvCamera
 from earsys.config import (
     CLOSED_FRAMES_THRESHOLD,
     EAR_THRESHOLD,
@@ -55,20 +59,9 @@ logger = logging.getLogger("earsys.main")
 # Detection loop
 # ---------------------------------------------------------------------------
 
-def run_detection(camera: GstreamerCamera, detector: FaceDetector, bridge: UdsBridge) -> bool:
-    """
-    Main detection loop.
 
-    Returns:
-        True  = user initiated shutdown (KeyboardInterrupt)
-        False = loop stopped because the camera stream ended or failed
-    """
-    closed_frames: int = 0
-    drowsy_logged: bool = False
-    health_interval_sec: float = 10.0
-    start_monotonic: float = time.monotonic()
-    next_health_log: float = start_monotonic + health_interval_sec
-
+@dataclass
+class DetectionStats:
     frames_total: int = 0
     sent_awake: int = 0
     sent_drowsy: int = 0
@@ -76,8 +69,77 @@ def run_detection(camera: GstreamerCamera, detector: FaceDetector, bridge: UdsBr
     frame_errors: int = 0
     sent_fused_scores: int = 0
 
-    # Track state changes: only suppress duplicate NO_FACE sends.
+    def log_health(self, uptime_sec: int) -> None:
+        logger.info(
+            "Health check uptime=%ss frames=%d awake=%d drowsy=%d no_face=%d fused_scores=%d frame_errors=%d",
+            uptime_sec,
+            self.frames_total,
+            self.sent_awake,
+            self.sent_drowsy,
+            self.sent_no_face,
+            self.sent_fused_scores,
+            self.frame_errors,
+        )
+
+
+@dataclass
+class DrowsinessState:
+    closed_frames: int = 0
+    drowsy_logged: bool = False
     previous_status: int | None = None
+
+    def reset_eye_closure(self) -> None:
+        self.closed_frames = 0
+        self.drowsy_logged = False
+
+
+def _to_rgb_frame(frame, color_format: str):
+    """Convert an OpenCV frame to RGB according to the configured input format."""
+    if color_format == "rgb":
+        return frame
+    if color_format == "nv12":
+        return cv2.cvtColor(frame, cv2.COLOR_YUV2RGB_NV12)
+    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+
+def _status_from_ear(ear: float, state: DrowsinessState) -> int:
+    if ear < EAR_THRESHOLD:
+        state.closed_frames += 1
+    else:
+        state.reset_eye_closure()
+
+    if state.closed_frames < CLOSED_FRAMES_THRESHOLD:
+        return STATUS_AWAKE
+
+    if not state.drowsy_logged:
+        state.drowsy_logged = True
+        logger.warning("Drowsiness detected! EAR=%.3f, consecutive frames=%d", ear, state.closed_frames)
+    return STATUS_DROWSY
+
+
+def _record_sent_status(stats: DetectionStats, status: int) -> None:
+    stats.sent_fused_scores += 1
+    if status == STATUS_DROWSY:
+        stats.sent_drowsy += 1
+    elif status == STATUS_AWAKE:
+        stats.sent_awake += 1
+    elif status == STATUS_NO_FACE:
+        stats.sent_no_face += 1
+
+
+def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridge) -> bool:
+    """
+    Main detection loop.
+
+    Returns:
+        True  = user initiated shutdown (KeyboardInterrupt)
+        False = loop stopped because the camera stream ended or failed
+    """
+    state = DrowsinessState()
+    stats = DetectionStats()
+    health_interval_sec: float = 10.0
+    start_monotonic: float = time.monotonic()
+    next_health_log: float = start_monotonic + health_interval_sec
 
     logger.info(
         "Detection loop started - EAR threshold=%.2f, consecutive frames=%d",
@@ -87,10 +149,10 @@ def run_detection(camera: GstreamerCamera, detector: FaceDetector, bridge: UdsBr
 
     try:
         for bgr_frame in camera.frames(flip=True):
-            frames_total += 1
+            stats.frames_total += 1
             try:
                 height, width = bgr_frame.shape[:2]
-                rgb_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_YUV2RGB_NV12)
+                rgb_frame = _to_rgb_frame(bgr_frame, camera.color_format)
 
                 face_landmarks_list = detector.detect(rgb_frame)
 
@@ -102,60 +164,35 @@ def run_detection(camera: GstreamerCamera, detector: FaceDetector, bridge: UdsBr
 
                     ear = average_ear(calculate_ear(left_eye), calculate_ear(right_eye))
 
-                    if ear < EAR_THRESHOLD:
-                        closed_frames += 1
-                    else:
-                        closed_frames = 0
-                        drowsy_logged = False
-
-                    if closed_frames >= CLOSED_FRAMES_THRESHOLD:
-                        status = STATUS_DROWSY
-                        if not drowsy_logged:
-                            drowsy_logged = True
-                            logger.warning("Drowsiness detected! EAR=%.3f, consecutive frames=%d", ear, closed_frames)
-                    else:
-                        status = STATUS_AWAKE
+                    status = _status_from_ear(ear, state)
 
                     bridge.send(status=status, ear=ear)
-                    sent_fused_scores += 1
-                    previous_status = status
+                    _record_sent_status(stats, status)
+                    state.previous_status = status
                     if status == STATUS_DROWSY:
-                        sent_drowsy += 1
-                        logger.info("Sent DROWSY status: EAR=%.3f, consecutive frames=%d", ear, closed_frames)
+                        logger.info("Sent DROWSY status: EAR=%.3f, consecutive frames=%d", ear, state.closed_frames)
                     else:
-                        sent_awake += 1
                         logger.info("Sent AWAKE status: EAR=%.3f", ear)
 
                 else:
-                    closed_frames = 0
-                    drowsy_logged = False
+                    state.reset_eye_closure()
                     status = STATUS_NO_FACE
-                    
+
                     # Send over UDS only when the state changes.
-                    if status != previous_status:
+                    if status != state.previous_status:
                         bridge.send(status=status, ear=0.0)
-                        sent_fused_scores += 1
-                        previous_status = status
-                        sent_no_face += 1
+                        _record_sent_status(stats, status)
+                        state.previous_status = status
                         logger.info("Sent NO_FACE status")
-            
+
             except Exception as e:
-                frame_errors += 1
+                stats.frame_errors += 1
                 logger.error("Error while processing frame: %s", e)
 
             now_mono = time.monotonic()
             if now_mono >= next_health_log:
                 uptime_sec = int(now_mono - start_monotonic)
-                logger.info(
-                    "Health check uptime=%ss frames=%d awake=%d drowsy=%d no_face=%d fused_scores=%d frame_errors=%d",
-                    uptime_sec,
-                    frames_total,
-                    sent_awake,
-                    sent_drowsy,
-                    sent_no_face,
-                    sent_fused_scores,
-                    frame_errors,
-                )
+                stats.log_health(uptime_sec)
                 next_health_log = now_mono + health_interval_sec
 
     except KeyboardInterrupt:
@@ -185,7 +222,7 @@ def main() -> int:
             reopen_attempt = 0
             while True:
                 try:
-                    with GstreamerCamera() as camera:
+                    with OpenCvCamera() as camera:
                         user_stopped = run_detection(camera, detector, bridge)
                         if user_stopped:
                             logger.info("Shutting down EARSYS on user request.")

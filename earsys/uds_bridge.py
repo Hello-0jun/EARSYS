@@ -1,15 +1,9 @@
-"""
-UDS (Unix Domain Socket) bridge.
-
-Sends EyeFrame packets as SOCK_DGRAM datagrams to the @sleepcare/eye abstract-namespace socket
-bound by sleepcare-ws.
-
-If the receiver (sleepcare-ws) is not running, sendto returns ECONNREFUSED and the packet is dropped quietly.
-"""
+"""UDS (Unix Domain Socket) bridge for EyeFrame datagrams."""
 
 from __future__ import annotations
 
 import logging
+import errno
 import socket
 import struct
 import time
@@ -27,6 +21,14 @@ from earsys.config import (
 )
 
 logger = logging.getLogger(__name__)
+RECEIVER_UNAVAILABLE_ERRNOS = {errno.ECONNREFUSED, errno.ENOENT}
+
+
+def _format_socket_addr(addr: str | bytes) -> str:
+    """Return a readable address for logs."""
+    if isinstance(addr, bytes) and addr.startswith(b"\x00"):
+        return "abstract:" + addr[1:].decode(errors="replace")
+    return f"path:{addr}"
 
 
 def _status_name(status: int) -> str:
@@ -45,9 +47,23 @@ def _ear_to_score(ear: float) -> float:
     return max(0.0, min(1.0, (EAR_OPEN_THR - ear) / span))
 
 
+def _pack_eye_frame(status: int, eye_score: float, seq: int, ts_ms: int) -> bytes:
+    """Serialize an EyeFrame datagram."""
+    return struct.pack(
+        EYE_FRAME_FORMAT,
+        EYE_FRAME_MAGIC,
+        EYE_FRAME_VERSION,
+        status,
+        0,
+        eye_score,
+        seq,
+        ts_ms,
+    )
+
+
 class UdsBridge:
     """
-    Class that sends EyeFrame packets to the @sleepcare/eye UDS socket.
+    Class that sends EyeFrame packets to the configured UDS socket.
 
     Supports the context manager protocol:
         with UdsBridge() as bridge:
@@ -82,16 +98,7 @@ class UdsBridge:
         ts_ms = int(time.time() * 1000)
         status_name = _status_name(status)
 
-        frame = struct.pack(
-            EYE_FRAME_FORMAT,
-            EYE_FRAME_MAGIC,    # 4s  magic
-            EYE_FRAME_VERSION,  # B   version
-            status,             # B   status
-            0,                  # H   reserved
-            eye_score,          # f   eye_score
-            self._seq,          # I   seq
-            ts_ms,              # Q   ts_ms
-        )
+        frame = _pack_eye_frame(status=status, eye_score=eye_score, seq=self._seq, ts_ms=ts_ms)
 
         try:
             self._sock.sendto(frame, UDS_EYE_ADDR)
@@ -104,23 +111,15 @@ class UdsBridge:
                 self._seq,
             )
             if self._was_unavailable:
-                logger.info("[uds] @sleepcare/eye delivery recovered")
+                logger.info("[uds] delivery recovered: %s", _format_socket_addr(UDS_EYE_ADDR))
                 self._was_unavailable = False
                 self._drop_count = 0
         except OSError as exc:
-            # ECONNREFUSED: sleepcare-ws is not running, drop quietly.
-            if exc.errno in (111, 2):  # 111 = ECONNREFUSED, 2 = ENOENT
-                self._was_unavailable = True
-                self._drop_count += 1
-                now = time.time()
-                if (now - self._last_drop_log_ts) >= 5.0:
-                    logger.warning("[uds] @sleepcare/eye unavailable(errno=%s), dropped=%d", exc.errno, self._drop_count)
-                    self._last_drop_log_ts = now
-                    self._drop_count = 0
+            if exc.errno in RECEIVER_UNAVAILABLE_ERRNOS:
+                self._handle_unavailable_receiver(exc)
                 return
 
-            if exc.errno not in (111,):  # 111 = ECONNREFUSED
-                logger.warning("[uds] sendto error: %s", exc)
+            logger.warning("[uds] sendto error: %s", exc)
 
     def close(self) -> None:
         """Close the socket. The abstract namespace is released automatically."""
@@ -150,7 +149,23 @@ class UdsBridge:
         try:
             self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
             # No bind is needed because this is send-only.
-            logger.info("[uds] UdsBridge socket created -> @sleepcare/eye")
+            logger.info("[uds] UdsBridge socket created -> %s", _format_socket_addr(UDS_EYE_ADDR))
         except OSError as exc:
             logger.error("[uds] socket creation failed: %s", exc)
             self._sock = None
+
+    def _handle_unavailable_receiver(self, exc: OSError) -> None:
+        self._was_unavailable = True
+        self._drop_count += 1
+        now = time.time()
+        if (now - self._last_drop_log_ts) < 5.0:
+            return
+
+        logger.warning(
+            "[uds] receiver unavailable addr=%s errno=%s dropped=%d",
+            _format_socket_addr(UDS_EYE_ADDR),
+            exc.errno,
+            self._drop_count,
+        )
+        self._last_drop_log_ts = now
+        self._drop_count = 0

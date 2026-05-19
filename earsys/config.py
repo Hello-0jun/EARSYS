@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Union
+
+UnixSocketAddress = Union[str, bytes]
 
 
 def _resolve_model_path() -> Path:
@@ -43,8 +46,24 @@ MODEL_PATH: Path = _resolve_model_path()
 # ---------------------------------------------------------------------------
 # UDS socket
 # ---------------------------------------------------------------------------
-# Abstract namespace address (first byte = '\x00')
-UDS_EYE_ADDR: bytes = b"\x00sleepcare/eye"
+def _resolve_uds_addr() -> UnixSocketAddress:
+    """
+    Resolve the destination Unix domain socket address.
+
+    Supported values for EARSYS_UDS_ADDR:
+      - abstract:<name>  Linux abstract namespace socket
+      - path:<path>      Filesystem socket path
+      - <path>           Filesystem socket path
+    """
+    raw = os.getenv("EARSYS_UDS_ADDR", "abstract:earsys/eye")
+    if raw.startswith("abstract:"):
+        return b"\x00" + raw.removeprefix("abstract:").encode()
+    if raw.startswith("path:"):
+        return raw.removeprefix("path:")
+    return raw
+
+
+UDS_EYE_ADDR: UnixSocketAddress = _resolve_uds_addr()
 
 # EyeFrame protocol
 EYE_FRAME_MAGIC   = b"SEYE"
@@ -57,17 +76,12 @@ EAR_OPEN_THR   = 0.30   # EAR >= this value -> score = 0.0
 EAR_CLOSED_THR = 0.15   # EAR <= this value -> score = 1.0
 
 # ---------------------------------------------------------------------------
-# Camera (GStreamer)
+# Camera
 # ---------------------------------------------------------------------------
-GST_PIPELINE: str = os.getenv(
-    "EARSYS_GST_PIPELINE",
-    (
-        "libcamerasrc ! "
-        "video/x-raw,width=640,height=480,format=NV12,framerate=30/1 ! "
-        "queue leaky=downstream max-size-buffers=1 ! "
-        "appsink drop=true max-buffers=1 sync=false"
-    ),
-)
+CAMERA_SOURCE: str = os.getenv("EARSYS_CAMERA_SOURCE", "auto")
+CAMERA_BACKEND: str = os.getenv("EARSYS_CAMERA_BACKEND", "auto").lower()
+CAMERA_COLOR_FORMAT: str = os.getenv("EARSYS_CAMERA_COLOR_FORMAT", "auto").lower()
+GST_PIPELINE: str | None = os.getenv("EARSYS_GST_PIPELINE")
 
 # ---------------------------------------------------------------------------
 # EAR / drowsiness detection
