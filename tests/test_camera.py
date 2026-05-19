@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 import earsys.camera as camera_module
@@ -10,10 +12,10 @@ from earsys.camera_profile import CameraProfile
 
 
 class FakeCapture:
-    opened_sources: set[int | str] = set()
-    calls: list[tuple[int | str, int]] = []
-    released: list[int | str] = []
-    properties: list[tuple[int | str, int, int]] = []
+    opened_sources: ClassVar[set[int | str]] = set()
+    calls: ClassVar[list[tuple[int | str, int]]] = []
+    released: ClassVar[list[int | str]] = []
+    properties: ClassVar[list[tuple[int | str, int, int]]] = []
 
     def __init__(self, source, backend):
         self.source = source

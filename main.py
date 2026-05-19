@@ -29,6 +29,7 @@ import time
 from dataclasses import dataclass
 
 import cv2
+import numpy as np
 
 from earsys.camera import OpenCvCamera
 from earsys.config import (
@@ -93,7 +94,7 @@ class DrowsinessState:
         self.drowsy_logged = False
 
 
-def _to_rgb_frame(frame, color_format: str):
+def _to_rgb_frame(frame: np.ndarray, color_format: str) -> np.ndarray:
     """Convert an OpenCV frame to RGB according to the configured input format."""
     if color_format == "rgb":
         return frame
@@ -159,7 +160,7 @@ def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridg
                 if face_landmarks_list:
                     landmarks = face_landmarks_list[0]
 
-                    left_eye  = get_eye_points(landmarks, LEFT_EYE_INDICES,  width, height)
+                    left_eye = get_eye_points(landmarks, LEFT_EYE_INDICES, width, height)
                     right_eye = get_eye_points(landmarks, RIGHT_EYE_INDICES, width, height)
 
                     ear = average_ear(calculate_ear(left_eye), calculate_ear(right_eye))
@@ -185,7 +186,7 @@ def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridg
                         state.previous_status = status
                         logger.info("Sent NO_FACE status")
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — catch-all to keep the detection loop alive
                 stats.frame_errors += 1
                 logger.error("Error while processing frame: %s", e)
 
@@ -206,6 +207,7 @@ def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridg
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> int:
     """
@@ -247,7 +249,7 @@ def main() -> int:
     except RuntimeError as exc:
         logger.error("Camera error: %s", exc)
         return 1
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.exception("Unexpected error: %s", exc)
         return 1
 

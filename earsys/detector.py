@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 import mediapipe as mp
+import numpy as np
 
 from earsys.config import MODEL_PATH
 
@@ -57,7 +58,7 @@ class FaceDetector:
     # Public interface
     # ------------------------------------------------------------------
 
-    def detect(self, rgb_frame) -> list:
+    def detect(self, rgb_frame: np.ndarray) -> list:
         """
         Detect face landmarks from an RGB NumPy array frame.
 
@@ -82,7 +83,7 @@ class FaceDetector:
     # Context manager support
     # ------------------------------------------------------------------
 
-    def __enter__(self) -> "FaceDetector":
+    def __enter__(self) -> FaceDetector:
         return self
 
     def __exit__(self, *_: object) -> None:

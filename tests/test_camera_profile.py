@@ -34,7 +34,12 @@ def test_environment_gstreamer_pipeline_overrides_everything(monkeypatch):
     )
 
     assert len(profiles) == 1
-    assert_profile(profiles[0], source="videotestsrc ! video/x-raw,format=NV12 ! appsink", backend="gstreamer", color_format="nv12")
+    assert_profile(
+        profiles[0],
+        source="videotestsrc ! video/x-raw,format=NV12 ! appsink",
+        backend="gstreamer",
+        color_format="nv12",
+    )
 
 
 def test_environment_camera_source_overrides_auto_detection(monkeypatch):

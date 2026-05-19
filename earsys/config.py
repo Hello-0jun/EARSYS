@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Union
 
-UnixSocketAddress = Union[str, bytes]
+UnixSocketAddress = str | bytes
 
 
 def _resolve_model_path() -> Path:
@@ -43,6 +42,7 @@ def _resolve_model_path() -> Path:
 # ---------------------------------------------------------------------------
 MODEL_PATH: Path = _resolve_model_path()
 
+
 # ---------------------------------------------------------------------------
 # UDS socket
 # ---------------------------------------------------------------------------
@@ -66,14 +66,14 @@ def _resolve_uds_addr() -> UnixSocketAddress:
 UDS_EYE_ADDR: UnixSocketAddress = _resolve_uds_addr()
 
 # EyeFrame protocol
-EYE_FRAME_MAGIC   = b"SEYE"
+EYE_FRAME_MAGIC = b"SEYE"
 EYE_FRAME_VERSION = 1
-EYE_FRAME_FORMAT  = "<4sBBHfIQ"   # 24 bytes
-EYE_FRAME_SIZE    = 24
+EYE_FRAME_FORMAT = "<4sBBHfIQ"  # 24 bytes
+EYE_FRAME_SIZE = 24
 
 # EAR -> eye_score conversion thresholds
-EAR_OPEN_THR   = 0.30   # EAR >= this value -> score = 0.0
-EAR_CLOSED_THR = 0.15   # EAR <= this value -> score = 1.0
+EAR_OPEN_THR = 0.30  # EAR >= this value -> score = 0.0
+EAR_CLOSED_THR = 0.15  # EAR <= this value -> score = 1.0
 
 # ---------------------------------------------------------------------------
 # Camera

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 import errno
+import logging
 import socket
 import struct
 import time
@@ -135,7 +135,7 @@ class UdsBridge:
     # Context manager support
     # ------------------------------------------------------------------
 
-    def __enter__(self) -> "UdsBridge":
+    def __enter__(self) -> UdsBridge:
         return self
 
     def __exit__(self, *_: object) -> None:

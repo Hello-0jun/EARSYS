@@ -6,7 +6,6 @@ import os
 
 import pytest
 
-
 if os.getenv("EARSYS_RUN_VISUAL_TESTS") != "1":
     pytest.skip("manual OpenCV visualization test", allow_module_level=True)
 
@@ -15,7 +14,6 @@ import time
 import cv2
 import mediapipe as mp
 import numpy as np
-
 
 MODEL_PATH = "../face_landmarker.task"
 LEFT_EYE = [33, 160, 158, 133, 153, 144]

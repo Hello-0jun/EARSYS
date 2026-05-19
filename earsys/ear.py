@@ -6,10 +6,9 @@ Only stateless pure functions are included, which makes unit testing easier.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
-
 
 # ---------------------------------------------------------------------------
 # Type alias
@@ -77,7 +76,4 @@ def get_eye_points(
     Returns:
         A list of pixel coordinate (int, int) tuples.
     """
-    return [
-        (int(landmarks[idx].x * width), int(landmarks[idx].y * height))
-        for idx in indices
-    ]
+    return [(int(landmarks[idx].x * width), int(landmarks[idx].y * height)) for idx in indices]

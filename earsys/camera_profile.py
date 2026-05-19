@@ -5,9 +5,9 @@ from __future__ import annotations
 import os
 import platform
 import shutil
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
 
 DEFAULT_CAMERA_WIDTH = 640
 DEFAULT_CAMERA_HEIGHT = 480
@@ -41,7 +41,7 @@ class CameraSettings:
     fps: int
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str]) -> "CameraSettings":
+    def from_env(cls, env: Mapping[str, str]) -> CameraSettings:
         return cls(
             source=_normalized_env(env, "EARSYS_CAMERA_SOURCE"),
             backend=_normalized_env(env, "EARSYS_CAMERA_BACKEND"),

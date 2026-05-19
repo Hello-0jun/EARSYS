@@ -4,13 +4,13 @@ Asynchronous UDS transmission bridge.
 Holds an internal UdsBridge instance and sends data from a separate worker thread
 to keep the main detection loop from blocking.
 """
+
 from __future__ import annotations
 
+import contextlib
 import logging
 import queue
 import threading
-import time
-from typing import Optional
 
 from .uds_bridge import UdsBridge
 
@@ -26,9 +26,9 @@ class UdsAsyncBridge:
 
     def __init__(self, max_queue: int = 512, worker_join_timeout: float = 2.0) -> None:
         self._bridge = UdsBridge()
-        self._queue: "queue.Queue[tuple[int, float]]" = queue.Queue(maxsize=max_queue)
+        self._queue: queue.Queue[tuple[int, float]] = queue.Queue(maxsize=max_queue)
         self._stop_event = threading.Event()
-        self._worker: Optional[threading.Thread] = threading.Thread(
+        self._worker: threading.Thread | None = threading.Thread(
             target=self._run, name="UdsAsyncBridge-worker", daemon=True
         )
         self._worker.start()
@@ -50,12 +50,10 @@ class UdsAsyncBridge:
         self._stop_event.set()
         if self._worker is not None:
             self._worker.join(self._worker_join_timeout)
-        try:
+        with contextlib.suppress(Exception):
             self._bridge.close()
-        except Exception:
-            pass
 
-    def __enter__(self) -> "UdsAsyncBridge":
+    def __enter__(self) -> UdsAsyncBridge:
         return self
 
     def __exit__(self, *_: object) -> None:

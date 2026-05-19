@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
-from typing import Iterator
+from collections.abc import Iterator, Sequence
 
 import cv2
 import numpy as np
@@ -133,7 +132,7 @@ class OpenCvCamera:
     # Context manager support
     # ------------------------------------------------------------------
 
-    def __enter__(self) -> "OpenCvCamera":
+    def __enter__(self) -> OpenCvCamera:
         self.open()
         return self
 

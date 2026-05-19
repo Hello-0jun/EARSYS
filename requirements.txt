@@ -1,10 +1,13 @@
-# EARSYS dependencies
-# Shared for amd64 and arm64.
-# Supports the Python range declared in pyproject.toml.
+# ---------------------------------------------------------------------------
+# LEGACY — kept for reference only.
+# Dependency management is now handled by uv (see pyproject.toml / uv.lock).
+#
+# To install:
+#   uv sync              # install all deps including dev
+#   uv sync --no-dev     # production only
+# ---------------------------------------------------------------------------
 
 # Computer vision / numerical computing
 mediapipe==0.10.18
 opencv-python>=4.8.0
 numpy>=1.24.0
-
-pytest>=8.0.0
