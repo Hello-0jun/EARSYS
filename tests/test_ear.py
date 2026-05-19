@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from earsys.ear import average_ear, calculate_ear, euclidean_distance, get_eye_points
+from earsys.vision.ear import average_ear, calculate_ear, euclidean_distance, get_eye_points
 
 
 @pytest.mark.parametrize(

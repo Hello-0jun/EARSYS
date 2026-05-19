@@ -13,7 +13,7 @@ from pathlib import Path
 import mediapipe as mp
 import numpy as np
 
-from earsys.config import MODEL_PATH
+from earsys.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +30,10 @@ class FaceDetector:
 
     def __init__(
         self,
-        model_path: Path = MODEL_PATH,
+        model_path: Path | None = None,
         num_faces: int = 1,
     ) -> None:
+        model_path = model_path or settings.model_path
         if not model_path.exists():
             raise FileNotFoundError(
                 f"Face Landmarker model file not found: {model_path}\n"

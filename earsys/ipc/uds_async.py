@@ -38,7 +38,7 @@ class UdsAsyncBridge:
     def send(self, status: int, ear: float) -> None:
         """Queue a status update asynchronously. Drop internally if the queue is full."""
         try:
-            logger.info("[uds-async] fused_score received: status=%s ear=%.3f", status, ear)
+            logger.debug("[uds-async] fused_score received: status=%s ear=%.3f", status, ear)
             self._queue.put_nowait((status, ear))
         except queue.Full:
             self._drop_count += 1
@@ -68,7 +68,7 @@ class UdsAsyncBridge:
                 continue
 
             try:
-                logger.info("[uds-async] fused_score sent: status=%s ear=%.3f", status, ear)
+                logger.debug("[uds-async] fused_score sent: status=%s ear=%.3f", status, ear)
                 self._bridge.send(status=status, ear=ear)
             except Exception as exc:  # Log and ignore exceptions raised during send.
                 logger.exception("[uds-async] send failed: %s", exc)

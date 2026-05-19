@@ -8,7 +8,7 @@ from collections.abc import Iterator, Sequence
 import cv2
 import numpy as np
 
-from earsys.camera_profile import CameraProfile, resolve_camera_profiles
+from earsys.camera.profile import CameraProfile, resolve_camera_profiles
 
 logger = logging.getLogger(__name__)
 

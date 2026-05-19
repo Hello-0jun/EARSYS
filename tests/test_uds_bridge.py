@@ -8,10 +8,8 @@ import time
 
 import pytest
 
-import earsys.uds_bridge as uds_bridge_module
+import earsys.ipc.uds_bridge as uds_bridge_module
 from earsys.config import (
-    EAR_CLOSED_THR,
-    EAR_OPEN_THR,
     EYE_FRAME_FORMAT,
     EYE_FRAME_MAGIC,
     EYE_FRAME_SIZE,
@@ -19,8 +17,12 @@ from earsys.config import (
     STATUS_AWAKE,
     STATUS_DROWSY,
     STATUS_NO_FACE,
+    settings,
 )
-from earsys.uds_bridge import UdsBridge, _ear_to_score
+from earsys.ipc.uds_bridge import UdsBridge, _ear_to_score
+
+EAR_OPEN_THR = settings.ear_open_thr
+EAR_CLOSED_THR = settings.ear_closed_thr
 
 
 @pytest.mark.parametrize(
@@ -54,7 +56,8 @@ def sent_datagrams(monkeypatch):
         def close(self):
             pass
 
-    monkeypatch.setattr(uds_bridge_module, "UDS_EYE_ADDR", "/tmp/earsys-test-eye.sock")
+    # Patch the settings singleton so uds_socket_addr returns a fixed test address.
+    monkeypatch.setattr(settings, "uds_addr", "path:/tmp/earsys-test-eye.sock")
     monkeypatch.setattr(uds_bridge_module.socket, "socket", lambda *_: FakeSocket())
     return sent
 

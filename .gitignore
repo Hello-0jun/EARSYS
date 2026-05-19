@@ -70,3 +70,11 @@ main.onefile-build/
 # ============================================================
 .DS_Store
 Thumbs.db
+
+# ============================================================
+# Environment files
+# ============================================================
+# .env.dev and .env.prod are committed (no secrets).
+# .env.local holds machine-specific overrides and is NOT committed.
+.env.local
+.env

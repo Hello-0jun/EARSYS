@@ -9,15 +9,13 @@ import struct
 import time
 
 from earsys.config import (
-    EAR_CLOSED_THR,
-    EAR_OPEN_THR,
     EYE_FRAME_FORMAT,
     EYE_FRAME_MAGIC,
     EYE_FRAME_VERSION,
     STATUS_AWAKE,
     STATUS_DROWSY,
     STATUS_NO_FACE,
-    UDS_EYE_ADDR,
+    settings,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,8 +41,8 @@ def _status_name(status: int) -> str:
 
 def _ear_to_score(ear: float) -> float:
     """Convert an EAR value to eye_score (0.0 to 1.0)."""
-    span = EAR_OPEN_THR - EAR_CLOSED_THR
-    return max(0.0, min(1.0, (EAR_OPEN_THR - ear) / span))
+    span = settings.ear_open_thr - settings.ear_closed_thr
+    return max(0.0, min(1.0, (settings.ear_open_thr - ear) / span))
 
 
 def _pack_eye_frame(status: int, eye_score: float, seq: int, ts_ms: int) -> bytes:
@@ -97,12 +95,13 @@ class UdsBridge:
         self._seq += 1
         ts_ms = int(time.time() * 1000)
         status_name = _status_name(status)
+        uds_addr = settings.uds_socket_addr
 
         frame = _pack_eye_frame(status=status, eye_score=eye_score, seq=self._seq, ts_ms=ts_ms)
 
         try:
-            self._sock.sendto(frame, UDS_EYE_ADDR)
-            logger.info(
+            self._sock.sendto(frame, uds_addr)
+            logger.debug(
                 "[uds] fused_score sent: status=%s(code=%d) ear=%.3f eye_score=%.3f seq=%d",
                 status_name,
                 status,
@@ -111,7 +110,7 @@ class UdsBridge:
                 self._seq,
             )
             if self._was_unavailable:
-                logger.info("[uds] delivery recovered: %s", _format_socket_addr(UDS_EYE_ADDR))
+                logger.info("[uds] delivery recovered: %s", _format_socket_addr(uds_addr))
                 self._was_unavailable = False
                 self._drop_count = 0
         except OSError as exc:
@@ -148,8 +147,7 @@ class UdsBridge:
     def _open(self) -> None:
         try:
             self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-            # No bind is needed because this is send-only.
-            logger.info("[uds] UdsBridge socket created -> %s", _format_socket_addr(UDS_EYE_ADDR))
+            logger.info("[uds] UdsBridge socket created -> %s", _format_socket_addr(settings.uds_socket_addr))
         except OSError as exc:
             logger.error("[uds] socket creation failed: %s", exc)
             self._sock = None
@@ -163,7 +161,7 @@ class UdsBridge:
 
         logger.warning(
             "[uds] receiver unavailable addr=%s errno=%s dropped=%d",
-            _format_socket_addr(UDS_EYE_ADDR),
+            _format_socket_addr(settings.uds_socket_addr),
             exc.errno,
             self._drop_count,
         )

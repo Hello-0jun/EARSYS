@@ -6,9 +6,9 @@ from typing import ClassVar
 
 import pytest
 
-import earsys.camera as camera_module
-from earsys.camera import OpenCvCamera, _opencv_backend
-from earsys.camera_profile import CameraProfile
+import earsys.camera.capture as camera_module
+from earsys.camera.capture import OpenCvCamera, _opencv_backend
+from earsys.camera.profile import CameraProfile
 
 
 class FakeCapture:
@@ -46,7 +46,7 @@ def reset_fake_capture():
 
 @pytest.fixture()
 def fake_video_capture(monkeypatch):
-    monkeypatch.setattr("earsys.camera.cv2.VideoCapture", FakeCapture)
+    monkeypatch.setattr("earsys.camera.capture.cv2.VideoCapture", FakeCapture)
     return FakeCapture
 
 
