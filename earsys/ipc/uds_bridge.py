@@ -102,7 +102,8 @@ class UdsBridge:
         try:
             self._sock.sendto(frame, uds_addr)
             logger.debug(
-                "[uds] fused_score sent: status=%s(code=%d) ear=%.3f eye_score=%.3f seq=%d",
+                "[dim cyan][uds][/dim cyan] fused_score sent: status=[bold]%s[/bold](code=[cyan]%d[/cyan]) "
+                "ear=[yellow]%.3f[/yellow] eye_score=[yellow]%.3f[/yellow] seq=[magenta]%d[/magenta]",
                 status_name,
                 status,
                 ear,
@@ -110,7 +111,7 @@ class UdsBridge:
                 self._seq,
             )
             if self._was_unavailable:
-                logger.info("[uds] delivery recovered: %s", _format_socket_addr(uds_addr))
+                logger.info("[bold green][uds] delivery recovered:[/bold green] %s", _format_socket_addr(uds_addr))
                 self._was_unavailable = False
                 self._drop_count = 0
         except OSError as exc:
@@ -118,7 +119,7 @@ class UdsBridge:
                 self._handle_unavailable_receiver(exc)
                 return
 
-            logger.warning("[uds] sendto error: %s", exc)
+            logger.warning("[bold red][uds] sendto error:[/bold red] %s", exc)
 
     def close(self) -> None:
         """Close the socket. The abstract namespace is released automatically."""
@@ -147,9 +148,12 @@ class UdsBridge:
     def _open(self) -> None:
         try:
             self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-            logger.info("[uds] UdsBridge socket created -> %s", _format_socket_addr(settings.uds_socket_addr))
+            logger.info(
+                "[bold blue][uds] UdsBridge socket created[/bold blue] -> %s",
+                _format_socket_addr(settings.uds_socket_addr),
+            )
         except OSError as exc:
-            logger.error("[uds] socket creation failed: %s", exc)
+            logger.error("[bold red][uds] socket creation failed:[/bold red] %s", exc)
             self._sock = None
 
     def _handle_unavailable_receiver(self, exc: OSError) -> None:
@@ -160,7 +164,8 @@ class UdsBridge:
             return
 
         logger.warning(
-            "[uds] receiver unavailable addr=%s errno=%s dropped=%d",
+            "[bold yellow][uds] receiver unavailable[/bold yellow] addr=[cyan]%s[/cyan] "
+            "errno=[red]%s[/red] dropped=[bold red]%d[/bold red]",
             _format_socket_addr(settings.uds_socket_addr),
             exc.errno,
             self._drop_count,

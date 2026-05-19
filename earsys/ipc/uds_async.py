@@ -38,12 +38,17 @@ class UdsAsyncBridge:
     def send(self, status: int, ear: float) -> None:
         """Queue a status update asynchronously. Drop internally if the queue is full."""
         try:
-            logger.debug("[uds-async] fused_score received: status=%s ear=%.3f", status, ear)
+            logger.debug(
+                "[dim cyan][uds-async][/dim cyan] fused_score received: "
+                "status=[bold]%s[/bold] ear=[yellow]%.3f[/yellow]",
+                status,
+                ear,
+            )
             self._queue.put_nowait((status, ear))
         except queue.Full:
             self._drop_count += 1
             if (self._drop_count & 0xF) == 0:
-                logger.warning("[uds-async] queue full, dropped=%d", self._drop_count)
+                logger.warning("[bold red][uds-async] queue full, dropped=%d[/bold red]", self._drop_count)
 
     def close(self) -> None:
         """Request worker shutdown and close the internal bridge."""
@@ -68,12 +73,17 @@ class UdsAsyncBridge:
                 continue
 
             try:
-                logger.debug("[uds-async] fused_score sent: status=%s ear=%.3f", status, ear)
+                logger.debug(
+                    "[dim cyan][uds-async][/dim cyan] fused_score sent: "
+                    "status=[bold]%s[/bold] ear=[yellow]%.3f[/yellow]",
+                    status,
+                    ear,
+                )
                 self._bridge.send(status=status, ear=ear)
             except Exception as exc:  # Log and ignore exceptions raised during send.
-                logger.exception("[uds-async] send failed: %s", exc)
+                logger.exception("[bold red][uds-async] send failed:[/bold red] %s", exc)
             finally:
                 self._queue.task_done()
 
         # Worker exit
-        logger.debug("[uds-async] worker exiting")
+        logger.debug("[dim cyan][uds-async][/dim cyan] worker exiting")

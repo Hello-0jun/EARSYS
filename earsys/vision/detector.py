@@ -53,7 +53,7 @@ class FaceDetector:
         self._landmarker = FaceLandmarker.create_from_options(options)
         self._start_ns: int = time.monotonic_ns()
         self._last_ms: int = -1
-        logger.info("FaceDetector initialized: model=%s", model_path)
+        logger.info("[bold blue]FaceDetector initialized[/bold blue]: model=[cyan]%s[/cyan]", model_path)
 
     # ------------------------------------------------------------------
     # Public interface
@@ -78,7 +78,7 @@ class FaceDetector:
     def close(self) -> None:
         """Release the MediaPipe landmarker."""
         self._landmarker.close()
-        logger.debug("FaceDetector released")
+        logger.debug("[dim]FaceDetector released[/dim]")
 
     # ------------------------------------------------------------------
     # Context manager support

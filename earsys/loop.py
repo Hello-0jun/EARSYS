@@ -15,6 +15,9 @@ import cv2
 import mediapipe as mp
 import numpy as np
 from mediapipe.framework.formats import landmark_pb2
+from rich.live import Live
+from rich.panel import Panel
+from rich.table import Table
 
 from earsys.camera.capture import OpenCvCamera
 from earsys.config import (
@@ -156,18 +159,6 @@ class DetectionStats:
     frame_errors: int = 0
     sent_fused_scores: int = 0
 
-    def log_health(self, uptime_sec: int) -> None:
-        logger.info(
-            "Health check uptime=%ss frames=%d awake=%d drowsy=%d no_face=%d fused_scores=%d frame_errors=%d",
-            uptime_sec,
-            self.frames_total,
-            self.sent_awake,
-            self.sent_drowsy,
-            self.sent_no_face,
-            self.sent_fused_scores,
-            self.frame_errors,
-        )
-
 
 @dataclass
 class DrowsinessState:
@@ -205,7 +196,12 @@ def _status_from_ear(ear: float, state: DrowsinessState) -> int:
 
     if not state.drowsy_logged:
         state.drowsy_logged = True
-        logger.warning("Drowsiness detected! EAR=%.3f, consecutive frames=%d", ear, state.closed_frames)
+        logger.warning(
+            "[bold red blink]Drowsiness detected![/bold red blink] "
+            "EAR=[yellow]%.3f[/yellow], consecutive frames=[red]%d[/red]",
+            ear,
+            state.closed_frames,
+        )
     return STATUS_DROWSY
 
 
@@ -219,12 +215,47 @@ def _record_sent_status(stats: DetectionStats, status: int) -> None:
         stats.sent_no_face += 1
 
 
+def _build_dashboard(
+    ear: float,
+    status: int,
+    state: DrowsinessState,
+    stats: DetectionStats,
+    uptime_sec: int,
+) -> Panel:
+    status_str = "AWAKE"
+    status_color = "bold green"
+    if status == STATUS_DROWSY:
+        status_str = "DROWSY"
+        status_color = "bold red blink"
+    elif status == STATUS_NO_FACE:
+        status_str = "NO FACE"
+        status_color = "dim"
+
+    table = Table(show_header=False, expand=True, box=None)
+    table.add_column("Key", style="bold cyan")
+    table.add_column("Value")
+    table.add_column("Key2", style="bold cyan")
+    table.add_column("Value2")
+
+    table.add_row("Status", f"[{status_color}]{status_str}[/]", "Uptime", f"{uptime_sec}s")
+    table.add_row("EAR", f"[yellow]{ear:.3f}[/]", "Frames", str(stats.frames_total))
+    table.add_row("Closed Frames", f"[red]{state.closed_frames}[/]", "Fused Sent", str(stats.sent_fused_scores))
+    table.add_row(
+        "Errors",
+        f"[red]{stats.frame_errors}[/]",
+        "UDS Packets",
+        f"Awake: {stats.sent_awake} | Drowsy: {stats.sent_drowsy}",
+    )
+
+    return Panel(table, title="[bold]EARSYS Live Dashboard[/bold]", border_style="bright_blue")
+
+
 # ---------------------------------------------------------------------------
 # Main detection loop
 # ---------------------------------------------------------------------------
 
 
-def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridge) -> bool:
+def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridge | None) -> bool:
     """
     Main detection loop.
 
@@ -233,16 +264,15 @@ def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridg
         False = loop stopped because the camera stream ended or failed
     """
     visualize = settings.feature_visualize_landmarks
-    verbose = settings.feature_debug_logging
 
     state = DrowsinessState()
     stats = DetectionStats()
-    health_interval_sec: float = 10.0
     start_monotonic: float = time.monotonic()
-    next_health_log: float = start_monotonic + health_interval_sec
 
     logger.info(
-        "Detection loop started — env=%s EAR threshold=%.2f, consecutive frames=%d, visualize=%s",
+        "[bold cyan]Detection loop started[/bold cyan] — env=[bold green]%s[/bold green] "
+        "EAR threshold=[yellow]%.2f[/yellow], consecutive frames=[red]%d[/red], "
+        "visualize=[magenta]%s[/magenta]",
         settings.env,
         settings.ear_threshold,
         settings.closed_frames_threshold,
@@ -250,72 +280,65 @@ def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridg
     )
 
     try:
-        for bgr_frame in camera.frames(flip=True):
-            stats.frames_total += 1
-            ear: float = 0.0
-            status: int = STATUS_NO_FACE
-            face_landmarks_list: list = []
+        with Live(_build_dashboard(0.0, STATUS_NO_FACE, state, stats, 0), refresh_per_second=15) as live:
+            for bgr_frame in camera.frames(flip=True):
+                stats.frames_total += 1
+                ear: float = 0.0
+                status: int = STATUS_NO_FACE
+                face_landmarks_list: list = []
 
-            try:
-                height, width = bgr_frame.shape[:2]
-                rgb_frame = _to_rgb_frame(bgr_frame, camera.color_format)
+                try:
+                    height, width = bgr_frame.shape[:2]
+                    rgb_frame = _to_rgb_frame(bgr_frame, camera.color_format)
 
-                face_landmarks_list = detector.detect(rgb_frame)
+                    face_landmarks_list = detector.detect(rgb_frame)
 
-                if face_landmarks_list:
-                    landmarks = face_landmarks_list[0]
+                    if face_landmarks_list:
+                        landmarks = face_landmarks_list[0]
 
-                    left_eye = get_eye_points(landmarks, LEFT_EYE_INDICES, width, height)
-                    right_eye = get_eye_points(landmarks, RIGHT_EYE_INDICES, width, height)
+                        left_eye = get_eye_points(landmarks, LEFT_EYE_INDICES, width, height)
+                        right_eye = get_eye_points(landmarks, RIGHT_EYE_INDICES, width, height)
 
-                    ear = average_ear(calculate_ear(left_eye), calculate_ear(right_eye))
-                    status = _status_from_ear(ear, state)
+                        ear = average_ear(calculate_ear(left_eye), calculate_ear(right_eye))
+                        status = _status_from_ear(ear, state)
 
-                    bridge.send(status=status, ear=ear)
-                    _record_sent_status(stats, status)
-                    state.previous_status = status
-
-                    if verbose:
-                        if status == STATUS_DROWSY:
-                            logger.debug("DROWSY EAR=%.3f frames=%d", ear, state.closed_frames)
-                        else:
-                            logger.debug("AWAKE  EAR=%.3f", ear)
-
-                else:
-                    state.reset_eye_closure()
-                    status = STATUS_NO_FACE
-
-                    # Send over UDS only when the state changes.
-                    if status != state.previous_status:
-                        bridge.send(status=status, ear=0.0)
+                        if bridge is not None:
+                            bridge.send(status=status, ear=ear)
                         _record_sent_status(stats, status)
                         state.previous_status = status
-                        if verbose:
-                            logger.debug("NO_FACE")
 
-            except Exception as e:  # noqa: BLE001 — keep the detection loop alive
-                stats.frame_errors += 1
-                logger.error("Error while processing frame: %s", e)
+                    else:
+                        state.reset_eye_closure()
+                        status = STATUS_NO_FACE
 
-            # Dev visualization — runs only when feature flag is enabled
-            if visualize:
-                quit_requested = _show_debug_frame(bgr_frame, face_landmarks_list, ear, status, state.closed_frames)
-                if quit_requested:
-                    logger.info("Dev window closed by user ('q' pressed).")
-                    cv2.destroyAllWindows()
-                    return True
+                        # Send over UDS only when the state changes.
+                        if status != state.previous_status:
+                            if bridge is not None:
+                                bridge.send(status=status, ear=0.0)
+                            _record_sent_status(stats, status)
+                            state.previous_status = status
 
-            now_mono = time.monotonic()
-            if now_mono >= next_health_log:
+                except Exception as e:  # noqa: BLE001 — keep the detection loop alive
+                    stats.frame_errors += 1
+                    logger.error("[bold red]Error while processing frame:[/bold red] %s", e)
+
+                # Dev visualization — runs only when feature flag is enabled
+                if visualize:
+                    quit_requested = _show_debug_frame(bgr_frame, face_landmarks_list, ear, status, state.closed_frames)
+                    if quit_requested:
+                        logger.info("[bold blue]Dev window closed by user ('q' pressed).[/bold blue]")
+                        cv2.destroyAllWindows()
+                        return True
+
+                now_mono = time.monotonic()
                 uptime_sec = int(now_mono - start_monotonic)
-                stats.log_health(uptime_sec)
-                next_health_log = now_mono + health_interval_sec
+                live.update(_build_dashboard(ear, status, state, stats, uptime_sec))
 
     except KeyboardInterrupt:
-        logger.info("KeyboardInterrupt: stopping detection loop.")
+        logger.info("[bold yellow]KeyboardInterrupt:[/bold yellow] stopping detection loop.")
         if visualize:
             cv2.destroyAllWindows()
         return True
 
-    logger.error("Camera frame stream ended, stopping detection loop.")
+    logger.error("[bold red]Camera frame stream ended,[/bold red] stopping detection loop.")
     return False

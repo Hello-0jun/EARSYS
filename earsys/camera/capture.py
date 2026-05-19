@@ -69,7 +69,9 @@ class OpenCvCamera:
                 self._cap = cap
                 self._profile = profile
                 logger.info(
-                    "Camera opened: label=%s source=%r backend=%s color=%s",
+                    "[bold magenta]Camera opened[/bold magenta]: "
+                    "label=[green]%s[/green] source=[cyan]%r[/cyan] "
+                    "backend=[yellow]%s[/yellow] color=[blue]%s[/blue]",
                     profile.label,
                     profile.source,
                     profile.backend,
@@ -100,7 +102,7 @@ class OpenCvCamera:
             return None
         ret, frame = self._cap.read()
         if not ret:
-            logger.warning("Failed to read frame")
+            logger.warning("[bold red]Failed to read frame[/bold red]")
             return None
         return frame
 
@@ -126,7 +128,7 @@ class OpenCvCamera:
         if self._cap is not None:
             self._cap.release()
             self._cap = None
-            logger.debug("Camera resources released")
+            logger.debug("[dim]Camera resources released[/dim]")
 
     # ------------------------------------------------------------------
     # Context manager support

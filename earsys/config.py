@@ -140,6 +140,10 @@ class AppSettings(BaseSettings):
         default=False,
         description="Enable verbose per-frame debug logging.",
     )
+    feature_uds_enabled: bool = Field(
+        default=True,
+        description="Enable UDS socket output.",
+    )
 
     # ---- Capability feature flags (runtime-probed, read-only) ----------------
     #

@@ -43,13 +43,14 @@ def _setup_logging(log_level: str) -> None:
     """Configure root logger with RichHandler."""
     logging.basicConfig(
         level=log_level.upper(),
-        format="%(name)s: %(message)s",
-        datefmt="[%H:%M:%S]",
+        format="[dim]%(name)s[/dim] \u2502 %(message)s",
+        datefmt="[%X]",
         handlers=[
             RichHandler(
                 console=Console(stderr=True),
                 rich_tracebacks=True,
-                show_path=False,
+                show_path=True,
+                markup=True,
             )
         ],
     )
@@ -62,7 +63,7 @@ def _setup_logging(log_level: str) -> None:
 _BANNER_WIDTH = 52
 
 
-def _print_start_banner(env: str, ear_thr: float, closed_frames: int, visualize: bool) -> None:
+def _print_start_banner(env: str, ear_thr: float, closed_frames: int, visualize: bool, uds: bool) -> None:
     lines = Text()
     lines.append("  env            ", style="dim")
     lines.append(f"{env}\n", style="bold cyan" if env == "dev" else "bold green")
@@ -72,6 +73,8 @@ def _print_start_banner(env: str, ear_thr: float, closed_frames: int, visualize:
     lines.append(f"{closed_frames}\n", style="yellow")
     lines.append("  visualize      ", style="dim")
     lines.append("on\n" if visualize else "off\n", style="green" if visualize else "red")
+    lines.append("  uds            ", style="dim")
+    lines.append("on\n" if uds else "off\n", style="green" if uds else "red")
     console.print(
         Panel(
             lines,
@@ -136,6 +139,10 @@ def run(
         bool | None,
         typer.Option("--visualize/--no-visualize", help="Show landmark visualisation window (dev)."),
     ] = None,
+    uds: Annotated[
+        bool | None,
+        typer.Option("--uds/--no-uds", help="Enable UDS socket output."),
+    ] = None,
     log_level: Annotated[
         str | None,
         typer.Option("--log-level", help="Logging level: DEBUG | INFO | WARNING | ERROR.", show_default=True),
@@ -157,12 +164,16 @@ def run(
         os.environ["EARSYS_CLOSED_FRAMES_THRESHOLD"] = str(closed_frames)
     if visualize is not None:
         os.environ["EARSYS_FEATURE_VISUALIZE_LANDMARKS"] = "true" if visualize else "false"
+    if uds is not None:
+        os.environ["EARSYS_FEATURE_UDS_ENABLED"] = "true" if uds else "false"
     if log_level is not None:
         os.environ["EARSYS_LOG_LEVEL"] = log_level.upper()
     if camera_source is not None:
         os.environ["EARSYS_CAMERA_SOURCE"] = camera_source
 
     # Late imports so env overrides are applied before pydantic-settings reads them
+    from contextlib import nullcontext
+
     from earsys.camera.capture import OpenCvCamera
     from earsys.config import settings
     from earsys.ipc.uds_async import UdsAsyncBridge as UdsBridge
@@ -175,13 +186,15 @@ def run(
         ear_thr=settings.ear_threshold,
         closed_frames=settings.closed_frames_threshold,
         visualize=settings.feature_visualize_landmarks,
+        uds=settings.feature_uds_enabled,
     )
 
     exit_code = 0
     stop_reason = "Stopped normally."
 
     try:
-        with UdsBridge() as bridge, FaceDetector() as detector:
+        bridge_ctx = UdsBridge() if settings.feature_uds_enabled else nullcontext()
+        with bridge_ctx as bridge, FaceDetector() as detector:
             reopen_attempt = 0
             while True:
                 try:
@@ -257,6 +270,7 @@ def config() -> None:
         ("ear_open_thr", f"{settings.ear_open_thr:.2f}", "EAR → eye_score=0"),
         ("ear_closed_thr", f"{settings.ear_closed_thr:.2f}", "EAR → eye_score=1"),
         ("feature.visualize_landmarks", str(settings.feature_visualize_landmarks), "Landmark window"),
+        ("feature.uds_enabled", str(settings.feature_uds_enabled), "UDS socket output"),
         ("feature.debug_logging", str(settings.feature_debug_logging), "Verbose frame log"),
     ]
 
