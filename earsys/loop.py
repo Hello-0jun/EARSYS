@@ -279,8 +279,14 @@ def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridg
         visualize,
     )
 
+    from earsys.cli import console
+
     try:
-        with Live(_build_dashboard(0.0, STATUS_NO_FACE, state, stats, 0), refresh_per_second=15) as live:
+        with Live(
+            _build_dashboard(0.0, STATUS_NO_FACE, state, stats, 0),
+            console=console,
+            refresh_per_second=15,
+        ) as live:
             for bgr_frame in camera.frames(flip=True):
                 stats.frames_total += 1
                 ear: float = 0.0

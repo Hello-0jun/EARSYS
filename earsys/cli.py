@@ -47,7 +47,7 @@ def _setup_logging(log_level: str) -> None:
         datefmt="[%X]",
         handlers=[
             RichHandler(
-                console=Console(stderr=True),
+                console=console,
                 rich_tracebacks=True,
                 show_path=True,
                 markup=True,
