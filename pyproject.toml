@@ -2,7 +2,7 @@
 name = "earsys"
 version = "0.3.0"
 description = "EAR-based drowsiness detection system"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "mediapipe==0.10.18",
     "opencv-python>=4.8.0",

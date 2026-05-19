@@ -2,7 +2,7 @@
 
 EAR(Eye Aspect Ratio) 기반 실시간 졸음 감지 시스템입니다. MediaPipe Face Landmarker로 얼굴 랜드마크를 추적하고, 눈 감김 상태를 계산한 뒤 EyeFrame 데이터그램을 Unix domain socket(UDS)으로 전송합니다.
 
-[![Python](https://img.shields.io/badge/Python-3.10--3.12-blue)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.12-blue)](https://python.org)
 [![MediaPipe](https://img.shields.io/badge/MediaPipe-0.10-green)](https://mediapipe.dev)
 
 ```text
@@ -20,7 +20,7 @@ Camera(OpenCV) -> FaceLandmarker(MediaPipe) -> EAR -> EyeFrame(UDS)
 
 ## Requirements
 
-- Python `>=3.10,<3.13`
+- Python `3.12`
 - `face_landmarker.task` MediaPipe 모델 파일
 - OpenCV에서 접근 가능한 카메라
 - Linux에서 UDS receiver를 함께 사용할 경우 UDS 권한/주소 설정
