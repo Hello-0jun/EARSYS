@@ -282,10 +282,13 @@ def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridg
     from earsys.cli import console
 
     try:
+        last_dashboard_update = 0.0
+        dashboard_interval = 0.25  # 4 FPS
+
         with Live(
             _build_dashboard(0.0, STATUS_NO_FACE, state, stats, 0),
             console=console,
-            refresh_per_second=15,
+            refresh_per_second=4,
         ) as live:
             for bgr_frame in camera.frames(flip=True):
                 stats.frames_total += 1
@@ -337,8 +340,10 @@ def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridg
                         return True
 
                 now_mono = time.monotonic()
-                uptime_sec = int(now_mono - start_monotonic)
-                live.update(_build_dashboard(ear, status, state, stats, uptime_sec))
+                if now_mono - last_dashboard_update >= dashboard_interval:
+                    uptime_sec = int(now_mono - start_monotonic)
+                    live.update(_build_dashboard(ear, status, state, stats, uptime_sec))
+                    last_dashboard_update = now_mono
 
     except KeyboardInterrupt:
         logger.info("[bold yellow]KeyboardInterrupt:[/bold yellow] stopping detection loop.")
