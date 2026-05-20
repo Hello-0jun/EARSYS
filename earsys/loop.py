@@ -222,7 +222,7 @@ def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridg
                 if visualize:
                     quit_requested = show_debug_frame(bgr_frame, face_landmarks_list, ear, status, state.closed_frames)
                     if quit_requested:
-                        logger.info("[bold blue]Dev window closed by user ('q' pressed).[/bold blue]")
+                        logger.info("[bold blue]Dev window closed by user (ESC or Ctrl+C pressed).[/bold blue]")
                         cv2.destroyAllWindows()
                         return True
 

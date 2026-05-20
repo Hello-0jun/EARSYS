@@ -65,7 +65,7 @@ def show_debug_frame(
     Render the debug visualization window.
 
     Returns:
-        True if the user pressed ESC (27) or 'q' to quit, False otherwise.
+        True if the user pressed ESC (27) or Ctrl+C (3) to quit, False otherwise.
     """
     display = frame.copy()
     height, width = display.shape[:2]
@@ -100,6 +100,6 @@ def show_debug_frame(
 
     cv2.imshow(_WINDOW_NAME, display)
     
-    # Quit if ESC (27) or 'q' is pressed
+    # Quit if ESC (27) or Ctrl+C (3) is pressed
     key = cv2.waitKey(1) & 0xFF
-    return key == 27 or key == ord("q")
+    return key == 27 or key == 3
