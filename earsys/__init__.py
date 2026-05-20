@@ -2,11 +2,15 @@
 EARSYS — EAR-based Drowsiness Detection System
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
-    "config",
-    "ear",
-    "detector",
-    "shm_bridge",
     "camera",
+    "camera_profile",
+    "cli",
+    "config",
+    "detector",
+    "ear",
+    "loop",
+    "uds_async",
+    "uds_bridge",
 ]

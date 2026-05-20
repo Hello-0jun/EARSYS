@@ -1,0 +1,48 @@
+[project]
+site_name = "EARSYS Documentation"
+site_description = "EAR-based drowsiness detection system"
+
+nav = [
+  { Home = "index.md" },
+  { Architecture = "architecture.md" },
+  { "Development Setup" = "setup.md" },
+  { Usage = "usage.md" },
+  { Deployment = "deployment.md" },
+  { Conventions = "conventions.md" },
+  { Testing = "testing.md" },
+  { Profiling = "profiling.md" },
+  { "API Reference" = [
+      { cli = "api/cli.md" },
+      { config = "api/config.md" },
+      { loop = "api/loop.md" },
+      { camera = [
+          { capture = "api/camera/capture.md" },
+          { profile = "api/camera/profile.md" }
+      ] },
+      { ipc = [
+          { uds_async = "api/ipc/uds_async.md" },
+          { uds_bridge = "api/ipc/uds_bridge.md" }
+      ] },
+      { vision = [
+          { detector = "api/vision/detector.md" },
+          { draw = "api/vision/draw.md" },
+          { ear = "api/vision/ear.md" }
+      ] }
+  ]}
+]
+
+plugins = [
+    "search",
+    { mkdocstrings = { default_handler = "python", handlers = { python = { paths = ["."] } } } }
+]
+
+[project.markdown_extensions.pymdownx.superfences]
+custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" }
+]
+
+[project.theme]
+name = "zensical"
+
+[project.theme.palette]
+scheme = "default"

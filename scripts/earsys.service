@@ -1,22 +1,17 @@
 [Unit]
 Description=EARSYS - EAR-based drowsiness detection system
 Documentation=https://github.com/WhiPaper/EARSYS
-After=graphical.target
-Wants=graphical.target
+After=network.target
 
 [Service]
 Type=simple
-User=root
-Group=root
 
-WorkingDirectory=/opt/earsys
-
-EnvironmentFile=-/etc/earsys.env
+EnvironmentFile=-/etc/earsys/earsys.env
 Environment="EARSYS_LOG_LEVEL=INFO"
 Environment="EARSYS_EAR_THRESHOLD=0.23"
 Environment="EARSYS_CLOSED_FRAMES=20"
 
-ExecStart=/opt/earsys/earsys
+ExecStart=/usr/bin/env earsys
 
 Restart=on-failure
 RestartSec=5s
@@ -35,4 +30,4 @@ PrivateTmp=true
 NoNewPrivileges=true
 
 [Install]
-WantedBy=graphical.target
+WantedBy=multi-user.target

@@ -2,15 +2,34 @@
 name = "earsys"
 version = "0.3.0"
 description = "EAR-based drowsiness detection system"
-requires-python = "==3.12.*"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12,<3.13"
+authors = [
+    { name = "EARSYS Contributors" },
+]
+keywords = ["drowsiness", "ear", "mediapipe", "raspberry-pi"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+]
 dependencies = [
     "mediapipe==0.10.18",
     "opencv-python>=4.8.0",
     "numpy>=1.24.0",
+    "pydantic-settings>=2.3.0",
+    "typer>=0.12.0",
+    "rich>=13.0.0",
 ]
 
+[project.urls]
+Repository = "https://github.com/your-org/earsys"
+Changelog = "https://github.com/your-org/earsys/releases"
+
 [project.scripts]
-earsys = "main:main"
+earsys = "earsys.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -20,5 +39,71 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["earsys*"]
 
+# ---------------------------------------------------------------------------
+# Dependency groups (PEP 735) — installed by: uv sync
+# ---------------------------------------------------------------------------
+[dependency-groups]
+dev = [
+    "build>=1.5.0",
+    "pytest>=8.0.0",
+    "ruff>=0.9.0",
+    "scalene>=2.3.0",
+]
+docs = [
+    "mkdocstrings[python]>=1.0.4",
+    "zensical>=0.0.43",
+]
+
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["earsys", "tests"]
+exclude = [".venv"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "ANN", # flake8-annotations
+    "BLE", # flake8-blind-except
+    "PTH", # flake8-use-pathlib
+    "RUF", # Ruff-specific
+]
+ignore = [
+    "ANN401", # Dynamically typed expressions (typing.Any) are disallowed
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "ANN",    # type annotations not required in tests
+    "SIM",    # simplification rules relaxed in tests
+    "PTH",    # pathlib not enforced in tests
+]
+"earsys/cli.py" = [
+    "PLC0415", # imports not at top level — intentional for env-override pattern
+    "ANN",     # type annotations relaxed in CLI layer
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["earsys"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-v --tb=short"

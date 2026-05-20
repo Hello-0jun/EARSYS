@@ -2,11 +2,19 @@
 Visualization script for manual testing on Windows/Linux.
 """
 
+import os
+
+import pytest
+
+if os.getenv("EARSYS_RUN_VISUAL_TESTS") != "1":
+    pytest.skip("manual OpenCV visualization test", allow_module_level=True)
+
+import queue
+import time
+
 import cv2
 import mediapipe as mp
 import numpy as np
-import time
-
 
 MODEL_PATH = "../face_landmarker.task"
 LEFT_EYE = [33, 160, 158, 133, 153, 144]
@@ -21,10 +29,38 @@ FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
 VisionRunningMode = mp.tasks.vision.RunningMode
 
 
+result_queue: queue.Queue = queue.Queue(maxsize=1)
+
+
+def result_callback(result: mp.tasks.vision.FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
+    face_landmarks_list = result.face_landmarks
+    ear = 0.0
+    if face_landmarks_list:
+        face = face_landmarks_list[0]
+        width = output_image.width
+        height = output_image.height
+        left_eye = get_eye_points(face, LEFT_EYE, width, height)
+        right_eye = get_eye_points(face, RIGHT_EYE, width, height)
+        ear = (calculate_ear(left_eye) + calculate_ear(right_eye)) / 2.0
+
+    try:
+        result_queue.put_nowait((face_landmarks_list, ear))
+    except queue.Full:
+        try:
+            result_queue.get_nowait()
+        except queue.Empty:
+            pass
+        try:
+            result_queue.put_nowait((face_landmarks_list, ear))
+        except queue.Full:
+            pass
+
+
 options = FaceLandmarkerOptions(
     base_options=BaseOptions(model_asset_path=MODEL_PATH),
-    running_mode=VisionRunningMode.VIDEO,
+    running_mode=VisionRunningMode.LIVE_STREAM,
     num_faces=1,
+    result_callback=result_callback,
 )
 landmarker = FaceLandmarker.create_from_options(options)
 
@@ -61,6 +97,10 @@ if not cap.isOpened():
     raise SystemExit("Unable to open the camera.")
 
 closed_frames = 0
+last_timestamp_ms = -1
+
+face_landmarks_list = []
+ear = 0.0
 
 while True:
     ret, frame = cap.read()
@@ -72,21 +112,28 @@ while True:
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-    result = landmarker.detect_for_video(mp_image, int(time.time() * 1000))
+
+    current_timestamp_ms = time.monotonic_ns() // 1_000_000
+    if current_timestamp_ms <= last_timestamp_ms:
+        current_timestamp_ms = last_timestamp_ms + 1
+    last_timestamp_ms = current_timestamp_ms
+
+    landmarker.detect_async(mp_image, current_timestamp_ms)
+
+    try:
+        face_landmarks_list, ear = result_queue.get_nowait()
+    except queue.Empty:
+        pass
 
     status_text = "AWAKE"
 
-    if result.face_landmarks:
-        face = result.face_landmarks[0]
+    if face_landmarks_list:
+        face = face_landmarks_list[0]
         left_eye = get_eye_points(face, LEFT_EYE, w, h)
         right_eye = get_eye_points(face, RIGHT_EYE, w, h)
 
         draw_eye_points(frame, left_eye)
         draw_eye_points(frame, right_eye)
-
-        left_ear = calculate_ear(left_eye)
-        right_ear = calculate_ear(right_eye)
-        ear = (left_ear + right_ear) / 2.0
 
         cv2.putText(frame, f"EAR: {ear:.3f}", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
@@ -105,7 +152,7 @@ while True:
     cv2.putText(frame, f"STATUS: {status_text}", (30, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
     cv2.putText(frame, f"CLOSED FRAMES: {closed_frames}", (30, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    cv2.imshow("EARSYS Visual Test (No SHM)", frame)
+    cv2.imshow("EARSYS Visual Test (No UDS)", frame)
     if cv2.waitKey(1) & 0xFF == 27:
         break
 
