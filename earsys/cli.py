@@ -199,7 +199,7 @@ def run(
             while True:
                 try:
                     with OpenCvCamera() as camera:
-                        user_stopped = run_detection(camera, detector, bridge)
+                        user_stopped = run_detection(camera, detector, bridge, console=console)
                         if user_stopped:
                             stop_reason = "Stopped by user request."
                             break
