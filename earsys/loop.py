@@ -32,9 +32,6 @@ from earsys.vision.draw import show_debug_frame
 logger = logging.getLogger(__name__)
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # Detection state
 # ---------------------------------------------------------------------------

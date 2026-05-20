@@ -31,6 +31,7 @@ VisionRunningMode = mp.tasks.vision.RunningMode
 
 result_queue: queue.Queue = queue.Queue(maxsize=1)
 
+
 def result_callback(result: mp.tasks.vision.FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
     face_landmarks_list = result.face_landmarks
     ear = 0.0
@@ -53,6 +54,7 @@ def result_callback(result: mp.tasks.vision.FaceLandmarkerResult, output_image: 
             result_queue.put_nowait((face_landmarks_list, ear))
         except queue.Full:
             pass
+
 
 options = FaceLandmarkerOptions(
     base_options=BaseOptions(model_asset_path=MODEL_PATH),

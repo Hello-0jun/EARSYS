@@ -31,6 +31,7 @@ _WINDOW_NAME = "Drowsiness Detection System"
 # Drawing Utilities
 # ---------------------------------------------------------------------------
 
+
 def _draw_text(
     frame: np.ndarray,
     text: str,
@@ -53,6 +54,7 @@ def draw_eye_points(frame: np.ndarray, points: list[Point2D]) -> None:
 # ---------------------------------------------------------------------------
 # Main Visualization
 # ---------------------------------------------------------------------------
+
 
 def show_debug_frame(
     frame: np.ndarray,
