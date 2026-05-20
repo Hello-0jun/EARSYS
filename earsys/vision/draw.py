@@ -99,7 +99,7 @@ def show_debug_frame(
     _draw_text(display, f"CLOSED FRAMES: {closed_frames}", (30, 200), _INFO_COLOR, font_scale=0.8)
 
     cv2.imshow(_WINDOW_NAME, display)
-    
+
     # Quit if ESC (27) or Ctrl+C (3) is pressed
     key = cv2.waitKey(1) & 0xFF
     return key == 27 or key == 3

@@ -41,7 +41,7 @@ def result_callback(result: mp.tasks.vision.FaceLandmarkerResult, output_image: 
         left_eye = get_eye_points(face, LEFT_EYE, width, height)
         right_eye = get_eye_points(face, RIGHT_EYE, width, height)
         ear = (calculate_ear(left_eye) + calculate_ear(right_eye)) / 2.0
-        
+
     try:
         result_queue.put_nowait((face_landmarks_list, ear))
     except queue.Full:
@@ -110,12 +110,12 @@ while True:
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-    
+
     current_timestamp_ms = time.monotonic_ns() // 1_000_000
     if current_timestamp_ms <= last_timestamp_ms:
         current_timestamp_ms = last_timestamp_ms + 1
     last_timestamp_ms = current_timestamp_ms
-    
+
     landmarker.detect_async(mp_image, current_timestamp_ms)
 
     try:

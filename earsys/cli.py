@@ -121,6 +121,30 @@ def _camera_wait(seconds: float) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _run_with_retries(detector, bridge) -> tuple[int, str]:
+    from earsys.camera.capture import OpenCvCamera
+    from earsys.config import settings
+    from earsys.loop import run_detection
+
+    reopen_attempt = 0
+    while True:
+        try:
+            with OpenCvCamera() as camera:
+                user_stopped = run_detection(camera, detector, bridge, console=console)
+                if user_stopped:
+                    return 0, "Stopped by user request."
+        except RuntimeError as exc:
+            logging.getLogger("earsys.cli").error("Camera open/runtime error: %s", exc)
+
+        reopen_attempt += 1
+        if settings.camera_max_retries > 0 and reopen_attempt > settings.camera_max_retries:
+            return 1, f"Exceeded camera retry limit ({settings.camera_max_retries})."
+
+        wait = settings.camera_reopen_sec
+        logging.getLogger("earsys.cli").warning("Retrying camera (%d) in %.1f s…", reopen_attempt, wait)
+        _camera_wait(wait)
+
+
 @app.command()
 def run(
     env: Annotated[
@@ -174,10 +198,8 @@ def run(
     # Late imports so env overrides are applied before pydantic-settings reads them
     from contextlib import nullcontext
 
-    from earsys.camera.capture import OpenCvCamera
     from earsys.config import settings
     from earsys.ipc.uds_async import UdsAsyncBridge as UdsBridge
-    from earsys.loop import run_detection
     from earsys.vision.detector import FaceDetector
 
     _setup_logging(settings.log_level)
@@ -195,26 +217,7 @@ def run(
     try:
         bridge_ctx = UdsBridge() if settings.feature_uds_enabled else nullcontext()
         with bridge_ctx as bridge, FaceDetector() as detector:
-            reopen_attempt = 0
-            while True:
-                try:
-                    with OpenCvCamera() as camera:
-                        user_stopped = run_detection(camera, detector, bridge, console=console)
-                        if user_stopped:
-                            stop_reason = "Stopped by user request."
-                            break
-                except RuntimeError as exc:
-                    logging.getLogger("earsys.cli").error("Camera open/runtime error: %s", exc)
-
-                reopen_attempt += 1
-                if settings.camera_max_retries > 0 and reopen_attempt > settings.camera_max_retries:
-                    stop_reason = f"Exceeded camera retry limit ({settings.camera_max_retries})."
-                    exit_code = 1
-                    break
-
-                wait = settings.camera_reopen_sec
-                logging.getLogger("earsys.cli").warning("Retrying camera (%d) in %.1f s…", reopen_attempt, wait)
-                _camera_wait(wait)
+            exit_code, stop_reason = _run_with_retries(detector, bridge)
 
     except FileNotFoundError as exc:
         err_console.print(f"[bold red]Model file not found:[/bold red] {exc}")

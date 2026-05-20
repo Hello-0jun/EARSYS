@@ -6,6 +6,7 @@ Initializes in LIVE_STREAM mode and manages a monotonically increasing timestamp
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import queue
 import time
@@ -49,7 +50,11 @@ class FaceDetector:
 
         self._result_queue: queue.Queue = queue.Queue(maxsize=1)
 
-        def result_callback(result: mp.tasks.vision.FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
+        def result_callback(
+            result: mp.tasks.vision.FaceLandmarkerResult,
+            output_image: mp.Image,
+            timestamp_ms: int,
+        ) -> None:
             face_landmarks_list = result.face_landmarks
             ear = 0.0
             if face_landmarks_list:
@@ -59,18 +64,8 @@ class FaceDetector:
                 left_eye = get_eye_points(landmarks, LEFT_EYE_INDICES, width, height)
                 right_eye = get_eye_points(landmarks, RIGHT_EYE_INDICES, width, height)
                 ear = average_ear(calculate_ear(left_eye), calculate_ear(right_eye))
-            
-            try:
-                self._result_queue.put_nowait((face_landmarks_list, ear))
-            except queue.Full:
-                try:
-                    self._result_queue.get_nowait()
-                except queue.Empty:
-                    pass
-                try:
-                    self._result_queue.put_nowait((face_landmarks_list, ear))
-                except queue.Full:
-                    pass
+
+            self._enqueue_latest_result((face_landmarks_list, ear))
 
         options = FaceLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=str(model_path)),
@@ -102,7 +97,7 @@ class FaceDetector:
         timestamp_ms = self._monotonic_ms()
 
         self._landmarker.detect_async(mp_image, timestamp_ms)
-        
+
         try:
             return self._result_queue.get_nowait()
         except queue.Empty:
@@ -139,3 +134,13 @@ class FaceDetector:
             current_ms = self._last_ms + 1
         self._last_ms = current_ms
         return current_ms
+
+    def _enqueue_latest_result(self, item: tuple[list, float]) -> None:
+        """Put the item into the queue, evicting the old item if full to keep only the freshest result."""
+        try:
+            self._result_queue.put_nowait(item)
+        except queue.Full:
+            with contextlib.suppress(queue.Empty):
+                self._result_queue.get_nowait()
+            with contextlib.suppress(queue.Full):
+                self._result_queue.put_nowait(item)
