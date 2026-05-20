@@ -32,7 +32,16 @@ VisionRunningMode = mp.tasks.vision.RunningMode
 result_queue: queue.Queue = queue.Queue()
 
 def result_callback(result: mp.tasks.vision.FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
-    result_queue.put(result)
+    face_landmarks_list = result.face_landmarks
+    ear = 0.0
+    if face_landmarks_list:
+        face = face_landmarks_list[0]
+        width = output_image.width
+        height = output_image.height
+        left_eye = get_eye_points(face, LEFT_EYE, width, height)
+        right_eye = get_eye_points(face, RIGHT_EYE, width, height)
+        ear = (calculate_ear(left_eye) + calculate_ear(right_eye)) / 2.0
+    result_queue.put((face_landmarks_list, ear))
 
 options = FaceLandmarkerOptions(
     base_options=BaseOptions(model_asset_path=MODEL_PATH),
@@ -96,25 +105,20 @@ while True:
     landmarker.detect_async(mp_image, current_timestamp_ms)
 
     try:
-        result = result_queue.get(timeout=1.0)
+        face_landmarks_list, ear = result_queue.get(timeout=1.0)
     except queue.Empty:
-        class EmptyResult:
-            face_landmarks = []
-        result = EmptyResult()
+        face_landmarks_list = []
+        ear = 0.0
 
     status_text = "AWAKE"
 
-    if result.face_landmarks:
-        face = result.face_landmarks[0]
+    if face_landmarks_list:
+        face = face_landmarks_list[0]
         left_eye = get_eye_points(face, LEFT_EYE, w, h)
         right_eye = get_eye_points(face, RIGHT_EYE, w, h)
 
         draw_eye_points(frame, left_eye)
         draw_eye_points(frame, right_eye)
-
-        left_ear = calculate_ear(left_eye)
-        right_ear = calculate_ear(right_eye)
-        ear = (left_ear + right_ear) / 2.0
 
         cv2.putText(frame, f"EAR: {ear:.3f}", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 

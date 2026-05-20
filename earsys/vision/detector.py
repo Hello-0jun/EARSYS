@@ -14,7 +14,8 @@ from pathlib import Path
 import mediapipe as mp
 import numpy as np
 
-from earsys.config import settings
+from earsys.config import LEFT_EYE_INDICES, RIGHT_EYE_INDICES, settings
+from earsys.vision.ear import average_ear, calculate_ear, get_eye_points
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,16 @@ class FaceDetector:
         self._result_queue: queue.Queue = queue.Queue()
 
         def result_callback(result: mp.tasks.vision.FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
-            self._result_queue.put(result)
+            face_landmarks_list = result.face_landmarks
+            ear = 0.0
+            if face_landmarks_list:
+                landmarks = face_landmarks_list[0]
+                width = output_image.width
+                height = output_image.height
+                left_eye = get_eye_points(landmarks, LEFT_EYE_INDICES, width, height)
+                right_eye = get_eye_points(landmarks, RIGHT_EYE_INDICES, width, height)
+                ear = average_ear(calculate_ear(left_eye), calculate_ear(right_eye))
+            self._result_queue.put((face_landmarks_list, ear))
 
         options = FaceLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=str(model_path)),
@@ -66,16 +76,16 @@ class FaceDetector:
     # Public interface
     # ------------------------------------------------------------------
 
-    def detect(self, rgb_frame: np.ndarray) -> list:
+    def detect(self, rgb_frame: np.ndarray) -> tuple[list, float]:
         """
-        Detect face landmarks from an RGB NumPy array frame.
+        Detect face landmarks and calculate EAR from an RGB NumPy array frame.
 
         Parameters:
             rgb_frame: HxWx3 uint8 NumPy array in RGB format.
 
         Returns:
-            The result.face_landmarks list.
-            Returns an empty list when no face is detected.
+            A tuple (face_landmarks_list, ear).
+            Returns ([], 0.0) when no face is detected.
         """
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
         timestamp_ms = self._monotonic_ms()
@@ -89,11 +99,11 @@ class FaceDetector:
         self._landmarker.detect_async(mp_image, timestamp_ms)
         
         try:
-            result = self._result_queue.get(timeout=1.0)
-            return result.face_landmarks
+            face_landmarks_list, ear = self._result_queue.get(timeout=1.0)
+            return face_landmarks_list, ear
         except queue.Empty:
             logger.warning("FaceLandmarker async detection timed out")
-            return []
+            return [], 0.0
 
     def close(self) -> None:
         """Release the MediaPipe landmarker."""

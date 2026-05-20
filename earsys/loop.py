@@ -30,7 +30,7 @@ from earsys.config import (
 )
 from earsys.ipc.uds_async import UdsAsyncBridge as UdsBridge
 from earsys.vision.detector import FaceDetector
-from earsys.vision.ear import average_ear, calculate_ear, get_eye_points
+from earsys.vision.ear import get_eye_points
 
 logger = logging.getLogger(__name__)
 
@@ -300,15 +300,9 @@ def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridg
                     height, width = bgr_frame.shape[:2]
                     rgb_frame = _to_rgb_frame(bgr_frame, camera.color_format)
 
-                    face_landmarks_list = detector.detect(rgb_frame)
+                    face_landmarks_list, ear = detector.detect(rgb_frame)
 
                     if face_landmarks_list:
-                        landmarks = face_landmarks_list[0]
-
-                        left_eye = get_eye_points(landmarks, LEFT_EYE_INDICES, width, height)
-                        right_eye = get_eye_points(landmarks, RIGHT_EYE_INDICES, width, height)
-
-                        ear = average_ear(calculate_ear(left_eye), calculate_ear(right_eye))
                         status = _status_from_ear(ear, state)
 
                         if bridge is not None:
