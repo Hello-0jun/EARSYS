@@ -1,12 +1,13 @@
 """
 MediaPipe Face Landmarker wrapper class.
 
-Initializes in VIDEO mode and manages a monotonically increasing timestamp internally.
+Initializes in LIVE_STREAM mode and manages a monotonically increasing timestamp internally.
 """
 
 from __future__ import annotations
 
 import logging
+import queue
 import time
 from pathlib import Path
 
@@ -24,7 +25,7 @@ class FaceDetector:
 
     Features:
     - Verifies the model file exists before initialization.
-    - Guarantees the monotonically increasing timestamp required by VIDEO mode via time.monotonic_ns().
+    - Guarantees the monotonically increasing timestamp required by LIVE_STREAM mode via time.monotonic_ns().
     - Supports the context manager (`with`) protocol.
     """
 
@@ -45,10 +46,16 @@ class FaceDetector:
         FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
         VisionRunningMode = mp.tasks.vision.RunningMode
 
+        self._result_queue: queue.Queue = queue.Queue()
+
+        def result_callback(result: mp.tasks.vision.FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
+            self._result_queue.put(result)
+
         options = FaceLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=str(model_path)),
-            running_mode=VisionRunningMode.VIDEO,
+            running_mode=VisionRunningMode.LIVE_STREAM,
             num_faces=num_faces,
+            result_callback=result_callback,
         )
         self._landmarker = FaceLandmarker.create_from_options(options)
         self._start_ns: int = time.monotonic_ns()
@@ -72,8 +79,21 @@ class FaceDetector:
         """
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
         timestamp_ms = self._monotonic_ms()
-        result = self._landmarker.detect_for_video(mp_image, timestamp_ms)
-        return result.face_landmarks
+
+        while not self._result_queue.empty():
+            try:
+                self._result_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        self._landmarker.detect_async(mp_image, timestamp_ms)
+        
+        try:
+            result = self._result_queue.get(timeout=1.0)
+            return result.face_landmarks
+        except queue.Empty:
+            logger.warning("FaceLandmarker async detection timed out")
+            return []
 
     def close(self) -> None:
         """Release the MediaPipe landmarker."""
@@ -99,7 +119,7 @@ class FaceDetector:
         Return elapsed time in milliseconds since process start as a monotonically increasing integer.
 
         Use time.monotonic_ns() instead of time.time() to avoid moving backward when the system clock changes.
-        MediaPipe VIDEO mode requires monotonically increasing timestamps.
+        MediaPipe LIVE_STREAM mode requires monotonically increasing timestamps.
         """
         current_ms = (time.monotonic_ns() - self._start_ns) // 1_000_000
         if current_ms <= self._last_ms:

@@ -9,6 +9,7 @@ import pytest
 if os.getenv("EARSYS_RUN_VISUAL_TESTS") != "1":
     pytest.skip("manual OpenCV visualization test", allow_module_level=True)
 
+import queue
 import time
 
 import cv2
@@ -28,10 +29,16 @@ FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
 VisionRunningMode = mp.tasks.vision.RunningMode
 
 
+result_queue: queue.Queue = queue.Queue()
+
+def result_callback(result: mp.tasks.vision.FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
+    result_queue.put(result)
+
 options = FaceLandmarkerOptions(
     base_options=BaseOptions(model_asset_path=MODEL_PATH),
-    running_mode=VisionRunningMode.VIDEO,
+    running_mode=VisionRunningMode.LIVE_STREAM,
     num_faces=1,
+    result_callback=result_callback,
 )
 landmarker = FaceLandmarker.create_from_options(options)
 
@@ -68,6 +75,7 @@ if not cap.isOpened():
     raise SystemExit("Unable to open the camera.")
 
 closed_frames = 0
+last_timestamp_ms = -1
 
 while True:
     ret, frame = cap.read()
@@ -79,7 +87,20 @@ while True:
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-    result = landmarker.detect_for_video(mp_image, int(time.time() * 1000))
+    
+    current_timestamp_ms = time.monotonic_ns() // 1_000_000
+    if current_timestamp_ms <= last_timestamp_ms:
+        current_timestamp_ms = last_timestamp_ms + 1
+    last_timestamp_ms = current_timestamp_ms
+    
+    landmarker.detect_async(mp_image, current_timestamp_ms)
+
+    try:
+        result = result_queue.get(timeout=1.0)
+    except queue.Empty:
+        class EmptyResult:
+            face_landmarks = []
+        result = EmptyResult()
 
     status_text = "AWAKE"
 
