@@ -2,7 +2,7 @@
 EARSYS — EAR-based Drowsiness Detection System
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __all__ = [
     "camera",
     "camera_profile",

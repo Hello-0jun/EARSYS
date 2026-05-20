@@ -51,15 +51,12 @@ EARSYS is packaged as a pure-Python wheel. The `face_landmarker.task` model file
 ```bash
 uv sync --group dev
 python -m build
-# Produces:
-#   dist/earsys-0.3.0-py3-none-any.whl
-#   dist/earsys-0.3.0.tar.gz
 ```
 
 ### Installing on a Target Device
 
 ```bash
-pip install earsys-0.3.0-py3-none-any.whl
+pip install earsys-0.4.0-py3-none-any.whl
 
 # Download the model separately
 wget -q \
@@ -75,7 +72,7 @@ Pushing a `v*` tag triggers the **EARSYS Package & Release** workflow (`.github/
 
 ``` mermaid
 flowchart TD
-    TAG["git push tag v*\ne.g. v0.3.0"] --> BUILD
+    TAG["git push tag v*\ne.g. v0.4.0"] --> BUILD
 
     subgraph BUILD["build job  (ubuntu-latest)"]
         B1["checkout"] --> B2["python -m build"]
@@ -91,8 +88,8 @@ flowchart TD
 ```
 
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 The workflow can also be triggered manually from the GitHub Actions UI with an explicit tag input.
