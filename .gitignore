@@ -78,3 +78,8 @@ Thumbs.db
 # .env.local holds machine-specific overrides and is NOT committed.
 .env.local
 .env
+
+# ============================================================
+# MkDocs / Zensical
+# ============================================================
+site/
