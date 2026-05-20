@@ -29,7 +29,7 @@ FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
 VisionRunningMode = mp.tasks.vision.RunningMode
 
 
-result_queue: queue.Queue = queue.Queue()
+result_queue: queue.Queue = queue.Queue(maxsize=1)
 
 def result_callback(result: mp.tasks.vision.FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
     face_landmarks_list = result.face_landmarks
@@ -41,7 +41,18 @@ def result_callback(result: mp.tasks.vision.FaceLandmarkerResult, output_image: 
         left_eye = get_eye_points(face, LEFT_EYE, width, height)
         right_eye = get_eye_points(face, RIGHT_EYE, width, height)
         ear = (calculate_ear(left_eye) + calculate_ear(right_eye)) / 2.0
-    result_queue.put((face_landmarks_list, ear))
+        
+    try:
+        result_queue.put_nowait((face_landmarks_list, ear))
+    except queue.Full:
+        try:
+            result_queue.get_nowait()
+        except queue.Empty:
+            pass
+        try:
+            result_queue.put_nowait((face_landmarks_list, ear))
+        except queue.Full:
+            pass
 
 options = FaceLandmarkerOptions(
     base_options=BaseOptions(model_asset_path=MODEL_PATH),
@@ -86,6 +97,9 @@ if not cap.isOpened():
 closed_frames = 0
 last_timestamp_ms = -1
 
+face_landmarks_list = []
+ear = 0.0
+
 while True:
     ret, frame = cap.read()
     if not ret:
@@ -105,10 +119,9 @@ while True:
     landmarker.detect_async(mp_image, current_timestamp_ms)
 
     try:
-        face_landmarks_list, ear = result_queue.get(timeout=1.0)
+        face_landmarks_list, ear = result_queue.get_nowait()
     except queue.Empty:
-        face_landmarks_list = []
-        ear = 0.0
+        pass
 
     status_text = "AWAKE"
 

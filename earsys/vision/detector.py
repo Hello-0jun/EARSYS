@@ -47,7 +47,7 @@ class FaceDetector:
         FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
         VisionRunningMode = mp.tasks.vision.RunningMode
 
-        self._result_queue: queue.Queue = queue.Queue()
+        self._result_queue: queue.Queue = queue.Queue(maxsize=1)
 
         def result_callback(result: mp.tasks.vision.FaceLandmarkerResult, output_image: mp.Image, timestamp_ms: int) -> None:
             face_landmarks_list = result.face_landmarks
@@ -59,7 +59,18 @@ class FaceDetector:
                 left_eye = get_eye_points(landmarks, LEFT_EYE_INDICES, width, height)
                 right_eye = get_eye_points(landmarks, RIGHT_EYE_INDICES, width, height)
                 ear = average_ear(calculate_ear(left_eye), calculate_ear(right_eye))
-            self._result_queue.put((face_landmarks_list, ear))
+            
+            try:
+                self._result_queue.put_nowait((face_landmarks_list, ear))
+            except queue.Full:
+                try:
+                    self._result_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    self._result_queue.put_nowait((face_landmarks_list, ear))
+                except queue.Full:
+                    pass
 
         options = FaceLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=str(model_path)),
@@ -76,7 +87,7 @@ class FaceDetector:
     # Public interface
     # ------------------------------------------------------------------
 
-    def detect(self, rgb_frame: np.ndarray) -> tuple[list, float]:
+    def detect(self, rgb_frame: np.ndarray) -> tuple[list, float] | None:
         """
         Detect face landmarks and calculate EAR from an RGB NumPy array frame.
 
@@ -84,26 +95,18 @@ class FaceDetector:
             rgb_frame: HxWx3 uint8 NumPy array in RGB format.
 
         Returns:
-            A tuple (face_landmarks_list, ear).
-            Returns ([], 0.0) when no face is detected.
+            A tuple (face_landmarks_list, ear) if a new result is ready.
+            Returns None if the queue is empty (inference still running).
         """
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
         timestamp_ms = self._monotonic_ms()
 
-        while not self._result_queue.empty():
-            try:
-                self._result_queue.get_nowait()
-            except queue.Empty:
-                break
-
         self._landmarker.detect_async(mp_image, timestamp_ms)
         
         try:
-            face_landmarks_list, ear = self._result_queue.get(timeout=1.0)
-            return face_landmarks_list, ear
+            return self._result_queue.get_nowait()
         except queue.Empty:
-            logger.warning("FaceLandmarker async detection timed out")
-            return [], 0.0
+            return None
 
     def close(self) -> None:
         """Release the MediaPipe landmarker."""

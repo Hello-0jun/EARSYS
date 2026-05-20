@@ -285,41 +285,45 @@ def run_detection(camera: OpenCvCamera, detector: FaceDetector, bridge: UdsBridg
         last_dashboard_update = 0.0
         dashboard_interval = 0.25  # 4 FPS
 
+        ear: float = 0.0
+        status: int = STATUS_NO_FACE
+        face_landmarks_list: list = []
+
         with Live(
-            _build_dashboard(0.0, STATUS_NO_FACE, state, stats, 0),
+            _build_dashboard(ear, status, state, stats, 0),
             console=console,
             refresh_per_second=4,
         ) as live:
             for bgr_frame in camera.frames(flip=True):
                 stats.frames_total += 1
-                ear: float = 0.0
-                status: int = STATUS_NO_FACE
-                face_landmarks_list: list = []
 
                 try:
                     height, width = bgr_frame.shape[:2]
                     rgb_frame = _to_rgb_frame(bgr_frame, camera.color_format)
 
-                    face_landmarks_list, ear = detector.detect(rgb_frame)
+                    result = detector.detect(rgb_frame)
 
-                    if face_landmarks_list:
-                        status = _status_from_ear(ear, state)
+                    if result is not None:
+                        face_landmarks_list, ear = result
 
-                        if bridge is not None:
-                            bridge.send(status=status, ear=ear)
-                        _record_sent_status(stats, status)
-                        state.previous_status = status
+                        if face_landmarks_list:
+                            status = _status_from_ear(ear, state)
 
-                    else:
-                        state.reset_eye_closure()
-                        status = STATUS_NO_FACE
-
-                        # Send over UDS only when the state changes.
-                        if status != state.previous_status:
                             if bridge is not None:
-                                bridge.send(status=status, ear=0.0)
+                                bridge.send(status=status, ear=ear)
                             _record_sent_status(stats, status)
                             state.previous_status = status
+
+                        else:
+                            state.reset_eye_closure()
+                            status = STATUS_NO_FACE
+
+                            # Send over UDS only when the state changes.
+                            if status != state.previous_status:
+                                if bridge is not None:
+                                    bridge.send(status=status, ear=0.0)
+                                _record_sent_status(stats, status)
+                                state.previous_status = status
 
                 except Exception as e:  # noqa: BLE001 — keep the detection loop alive
                     stats.frame_errors += 1
